@@ -1,22 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookmarkList } from "./BookmarkList";
+import { FilterBar } from "./FilterBar";
 import { Search, Plus } from "lucide-react";
+import { useFilterStore } from "@/store/filterStore";
 
 interface SidebarProps {
   onCreateClick: () => void;
 }
 
 export function Sidebar({ onCreateClick }: SidebarProps) {
-  const [searchQuery, setSearchQuery] = useState("");
+  const { searchQuery, setSearchQuery } = useFilterStore();
+  const [localQuery, setLocalQuery] = useState(searchQuery);
+
+  // Debounce search query updates (500ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(localQuery);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [localQuery, setSearchQuery]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="p-4 pb-3 border-b border-sidebar-border">
+      <div className="flex-shrink-0 p-4 pb-3 border-b border-sidebar-border">
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-display font-bold text-sidebar-foreground">
             Bookmarks
@@ -37,15 +49,20 @@ export function Sidebar({ onCreateClick }: SidebarProps) {
           <Input
             type="search"
             placeholder="Search bookmarks..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={localQuery}
+            onChange={(e) => setLocalQuery(e.target.value)}
             className="pl-9 h-9 bg-sidebar-accent border-sidebar-border"
           />
         </div>
       </div>
 
+      {/* Filter Bar */}
+      <FilterBar />
+
       {/* Bookmark List */}
-      <BookmarkList />
+      <div className="flex-1 min-h-0 h-0">
+        <BookmarkList />
+      </div>
     </div>
   );
 }

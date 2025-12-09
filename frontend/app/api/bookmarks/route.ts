@@ -6,14 +6,75 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/bookmarks
  * List all bookmarks with optional filtering
+ * Query params: q (search), type (contentType), source (domain), dateFrom, dateTo
  */
 export async function GET(request: NextRequest) {
   try {
     const bookmarks = loadBookmarksServer();
+    const searchParams = request.nextUrl.searchParams;
 
-    // TODO: Add filtering support (query params: q, type, tags, status)
-    // For now, just return all bookmarks sorted by createdAt desc
-    const sortedBookmarks = bookmarks.sort((a, b) =>
+    // Extract query parameters
+    const searchQuery = searchParams.get('q')?.toLowerCase().trim();
+    const typeFilter = searchParams.get('type');
+    const sourceFilter = searchParams.get('source')?.toLowerCase();
+    const dateFrom = searchParams.get('dateFrom');
+    const dateTo = searchParams.get('dateTo');
+
+    // Filter bookmarks
+    let filteredBookmarks = bookmarks;
+
+    // Search filter (word similarity in title and tags)
+    if (searchQuery) {
+      const searchWords = searchQuery.split(/\s+/).filter(word => word.length > 0);
+      filteredBookmarks = filteredBookmarks.filter(bookmark => {
+        const titleLower = bookmark.title.toLowerCase();
+        const tagsLower = bookmark.tags.map(tag => tag.toLowerCase());
+
+        // Check if any search word matches title or any tag
+        return searchWords.some(word =>
+          titleLower.includes(word) ||
+          tagsLower.some(tag => tag.includes(word))
+        );
+      });
+    }
+
+    // Content type filter
+    if (typeFilter) {
+      filteredBookmarks = filteredBookmarks.filter(
+        bookmark => bookmark.contentType === typeFilter
+      );
+    }
+
+    // Source/domain filter
+    if (sourceFilter) {
+      filteredBookmarks = filteredBookmarks.filter(
+        bookmark => bookmark.domain.toLowerCase().includes(sourceFilter)
+      );
+    }
+
+    // Date range filter
+    if (dateFrom) {
+      const fromDate = new Date(dateFrom);
+      if (!isNaN(fromDate.getTime())) {
+        filteredBookmarks = filteredBookmarks.filter(
+          bookmark => bookmark.createdAt >= fromDate
+        );
+      }
+    }
+
+    if (dateTo) {
+      const toDate = new Date(dateTo);
+      if (!isNaN(toDate.getTime())) {
+        // Set to end of day
+        toDate.setHours(23, 59, 59, 999);
+        filteredBookmarks = filteredBookmarks.filter(
+          bookmark => bookmark.createdAt <= toDate
+        );
+      }
+    }
+
+    // Sort by createdAt desc
+    const sortedBookmarks = filteredBookmarks.sort((a, b) =>
       b.createdAt.getTime() - a.createdAt.getTime()
     );
 

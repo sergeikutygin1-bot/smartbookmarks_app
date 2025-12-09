@@ -2,15 +2,52 @@ import { Bookmark } from '@/store/bookmarksStore';
 
 const API_BASE = '/api';
 
+export interface BookmarkFilters {
+  searchQuery?: string;
+  types?: string[];
+  sources?: string[];
+  dateFrom?: Date | null;
+  dateTo?: Date | null;
+}
+
 /**
  * API client for bookmarks
  */
 export const bookmarksApi = {
   /**
-   * Fetch all bookmarks
+   * Fetch all bookmarks with optional filters
    */
-  async getAll(): Promise<Bookmark[]> {
-    const response = await fetch(`${API_BASE}/bookmarks`, {
+  async getAll(filters?: BookmarkFilters): Promise<Bookmark[]> {
+    // Build query string from filters
+    const params = new URLSearchParams();
+
+    if (filters?.searchQuery) {
+      params.append('q', filters.searchQuery);
+    }
+
+    if (filters?.types && filters.types.length > 0) {
+      // For multiple types, we'll send the first one for now
+      // Can be enhanced to support multiple types in the future
+      params.append('type', filters.types[0]);
+    }
+
+    if (filters?.sources && filters.sources.length > 0) {
+      // For multiple sources, we'll send the first one for now
+      params.append('source', filters.sources[0]);
+    }
+
+    if (filters?.dateFrom) {
+      params.append('dateFrom', filters.dateFrom.toISOString());
+    }
+
+    if (filters?.dateTo) {
+      params.append('dateTo', filters.dateTo.toISOString());
+    }
+
+    const queryString = params.toString();
+    const url = queryString ? `${API_BASE}/bookmarks?${queryString}` : `${API_BASE}/bookmarks`;
+
+    const response = await fetch(url, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });

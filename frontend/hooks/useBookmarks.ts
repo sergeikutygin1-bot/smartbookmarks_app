@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { bookmarksApi } from '@/lib/api';
+import { bookmarksApi, BookmarkFilters } from '@/lib/api';
 import { Bookmark } from '@/store/bookmarksStore';
 
 /**
@@ -8,18 +8,18 @@ import { Bookmark } from '@/store/bookmarksStore';
 export const bookmarksKeys = {
   all: ['bookmarks'] as const,
   lists: () => [...bookmarksKeys.all, 'list'] as const,
-  list: (filters: Record<string, any>) => [...bookmarksKeys.lists(), filters] as const,
+  list: (filters: BookmarkFilters) => [...bookmarksKeys.lists(), filters] as const,
   details: () => [...bookmarksKeys.all, 'detail'] as const,
   detail: (id: string) => [...bookmarksKeys.details(), id] as const,
 };
 
 /**
- * Fetch all bookmarks
+ * Fetch all bookmarks with optional filters
  */
-export function useBookmarks() {
+export function useBookmarks(filters?: BookmarkFilters) {
   return useQuery({
-    queryKey: bookmarksKeys.lists(),
-    queryFn: () => bookmarksApi.getAll(),
+    queryKey: filters ? bookmarksKeys.list(filters) : bookmarksKeys.lists(),
+    queryFn: () => bookmarksApi.getAll(filters),
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 }
