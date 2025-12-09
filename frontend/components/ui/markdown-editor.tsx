@@ -74,9 +74,19 @@ export function MarkdownEditor({
     },
   });
 
-  // Note: We don't sync content changes because parent uses key={bookmark.id}
-  // This causes complete re-mount when switching bookmarks, so initial content is always fresh
-  // During editing, we don't want to sync back to avoid destroying formatting
+  // Sync content updates (e.g., from enrichment) when editor is not focused
+  // This allows enriched summaries to appear without requiring page reload
+  useEffect(() => {
+    if (!editor || editor.isFocused) return; // Don't update while user is editing
+
+    const currentHtml = editor.getHTML();
+    const newHtml = content ? marked.parse(content, { async: false }) as string : "";
+
+    // Only update if content actually changed (avoid unnecessary re-renders)
+    if (currentHtml !== newHtml) {
+      editor.commands.setContent(newHtml);
+    }
+  }, [content, editor]);
 
   const setLink = useCallback(() => {
     if (!editor) return;

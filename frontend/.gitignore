@@ -42,3 +42,4 @@ next-env.d.ts
 
 # Server-side data storage
 .data/
+.playwright-mcp/

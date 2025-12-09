@@ -175,3 +175,39 @@ export function useDeleteBookmark() {
     },
   });
 }
+
+/**
+ * Enrich a bookmark with AI-generated metadata
+ */
+export function useEnrichBookmark() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => bookmarksApi.enrich(id),
+    onMutate: async (id) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: bookmarksKeys.lists() });
+      await queryClient.cancelQueries({ queryKey: bookmarksKeys.detail(id) });
+
+      // Snapshot previous values
+      const previousBookmarks = queryClient.getQueryData<Bookmark[]>(bookmarksKeys.lists());
+      const previousBookmark = queryClient.getQueryData<Bookmark>(bookmarksKeys.detail(id));
+
+      return { previousBookmarks, previousBookmark };
+    },
+    onError: (err, id, context) => {
+      // Rollback on error
+      if (context?.previousBookmarks) {
+        queryClient.setQueryData(bookmarksKeys.lists(), context.previousBookmarks);
+      }
+      if (context?.previousBookmark) {
+        queryClient.setQueryData(bookmarksKeys.detail(id), context.previousBookmark);
+      }
+    },
+    onSuccess: (data, id) => {
+      // Update cache with enriched data
+      queryClient.setQueryData(bookmarksKeys.detail(id), data);
+      queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
+    },
+  });
+}

@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Bookmark } from "@/store/bookmarksStore";
-import { useUpdateBookmark } from "@/hooks/useBookmarks";
+import { useUpdateBookmark, useEnrichBookmark } from "@/hooks/useBookmarks";
 import { Input } from "@/components/ui/input";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Tag, Sparkles, X } from "lucide-react";
+import { ExternalLink, Tag, Sparkles, X, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface BookmarkNoteProps {
@@ -16,6 +16,7 @@ interface BookmarkNoteProps {
 
 export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const updateMutation = useUpdateBookmark();
+  const enrichMutation = useEnrichBookmark();
 
   const [title, setTitle] = useState(bookmark.title);
   const [url, setUrl] = useState(bookmark.url);
@@ -25,10 +26,11 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const [newTagValue, setNewTagValue] = useState("");
   const tagInputRef = useRef<HTMLInputElement>(null);
 
-  // Track if we're actively saving
+  // Track if we're actively saving or enriching
   const isSaving = updateMutation.isPending;
+  const isEnriching = enrichMutation.isPending;
 
-  // Sync local state when bookmark changes (user selects different bookmark)
+  // Sync local state when bookmark changes (user selects different bookmark or data updates)
   useEffect(() => {
     setTitle(bookmark.title);
     setUrl(bookmark.url);
@@ -36,7 +38,7 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     setTags(bookmark.tags);
     setIsAddingTag(false);
     setNewTagValue("");
-  }, [bookmark.id]);
+  }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags]);
 
   // Focus tag input when adding tag
   useEffect(() => {
@@ -96,6 +98,22 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     }
   };
 
+  // Handle enrich with AI
+  const handleEnrich = async () => {
+    if (!bookmark.id || isEnriching) return;
+
+    try {
+      const enrichedBookmark = await enrichMutation.mutateAsync(bookmark.id);
+      // Update local state with enriched data
+      setTitle(enrichedBookmark.title);
+      setSummary(enrichedBookmark.summary || "");
+      setTags(enrichedBookmark.tags);
+    } catch (error) {
+      console.error('Enrichment failed:', error);
+      // Error handling is done by React Query
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -103,9 +121,9 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
       transition={{ duration: 0.3 }}
       className="h-full p-10 overflow-y-auto relative"
     >
-      {/* Auto-save indicator - subtle, non-intrusive, top-right */}
+      {/* Auto-save and enriching indicators - subtle, non-intrusive, top-right */}
       <AnimatePresence>
-        {isSaving && (
+        {isSaving && !isEnriching && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 0.5 }}
@@ -114,6 +132,18 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
             className="fixed top-4 right-6 text-[10px] font-medium text-muted-foreground pointer-events-none"
           >
             Saving...
+          </motion.div>
+        )}
+        {isEnriching && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed top-4 right-6 text-sm font-medium text-primary pointer-events-none flex items-center gap-2"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Enriching with AI...
           </motion.div>
         )}
       </AnimatePresence>
@@ -222,9 +252,20 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
               size="sm"
               variant="ghost"
               className="h-8 text-sm gap-2 hover:bg-primary hover:text-primary-foreground transition-all duration-200 group"
+              onClick={handleEnrich}
+              disabled={isEnriching || !url}
             >
-              <Sparkles className="h-4 w-4 text-primary group-hover:text-primary-foreground transition-all duration-200" />
-              Enrich with AI
+              {isEnriching ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Enriching...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 text-primary group-hover:text-primary-foreground transition-all duration-200" />
+                  Enrich with AI
+                </>
+              )}
             </Button>
           </div>
           <MarkdownEditor

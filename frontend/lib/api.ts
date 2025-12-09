@@ -115,4 +115,28 @@ export const bookmarksApi = {
       throw new Error('Failed to delete bookmark');
     }
   },
+
+  /**
+   * Enrich a bookmark with AI-generated metadata
+   */
+  async enrich(id: string): Promise<Bookmark> {
+    const response = await fetch(`${API_BASE}/bookmarks/${id}/enrich`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to enrich bookmark');
+    }
+
+    const json = await response.json();
+
+    return {
+      ...json.data,
+      createdAt: new Date(json.data.createdAt),
+      updatedAt: new Date(json.data.updatedAt),
+      processedAt: json.data.processedAt ? new Date(json.data.processedAt) : null,
+    };
+  },
 };
