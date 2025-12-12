@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ExternalLink, Tag, Sparkles, X, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 
 interface BookmarkNoteProps {
   bookmark: Bookmark;
@@ -24,11 +25,11 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const [tags, setTags] = useState<string[]>(bookmark.tags);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTagValue, setNewTagValue] = useState("");
+  const [isEnriching, setIsEnriching] = useState(false);
   const tagInputRef = useRef<HTMLInputElement>(null);
 
-  // Track if we're actively saving or enriching
+  // Track if we're actively saving
   const isSaving = updateMutation.isPending;
-  const isEnriching = enrichMutation.isPending;
 
   // Sync local state when bookmark changes (user selects different bookmark or data updates)
   useEffect(() => {
@@ -38,6 +39,7 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     setTags(bookmark.tags);
     setIsAddingTag(false);
     setNewTagValue("");
+    setIsEnriching(false); // Reset enriching state when switching bookmarks
   }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags]);
 
   // Focus tag input when adding tag
@@ -102,15 +104,37 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const handleEnrich = async () => {
     if (!bookmark.id || isEnriching) return;
 
+    setIsEnriching(true);
     try {
       const enrichedBookmark = await enrichMutation.mutateAsync(bookmark.id);
       // Update local state with enriched data
       setTitle(enrichedBookmark.title);
       setSummary(enrichedBookmark.summary || "");
       setTags(enrichedBookmark.tags);
+
+      // Show success toast
+      toast.success("AI enrichment completed!", {
+        description: "Summary, tags, and metadata have been updated.",
+      });
     } catch (error) {
       console.error('Enrichment failed:', error);
-      // Error handling is done by React Query
+
+      // Extract error message
+      const errorMessage = error instanceof Error
+        ? error.message
+        : "An unexpected error occurred while enriching the bookmark.";
+
+      // Show user-friendly error toast
+      toast.error("AI enrichment failed", {
+        description: errorMessage,
+        duration: 5000,
+        action: {
+          label: "Retry",
+          onClick: () => handleEnrich(),
+        },
+      });
+    } finally {
+      setIsEnriching(false);
     }
   };
 

@@ -1,6 +1,7 @@
 import { extractContent, validateUrl } from "../tools/contentExtractor";
 import { analyzeContent } from "../chains/analysisChain";
 import { suggestTags } from "../chains/taggingChain";
+import { getEmbedderAgent } from "./embedderAgent";
 import type {
   EnrichmentOptions,
   EnrichmentResult,
@@ -23,7 +24,7 @@ import type {
  */
 
 interface EnrichmentProgress {
-  step: "extraction" | "analysis" | "tagging" | "completed";
+  step: "extraction" | "analysis" | "tagging" | "embedding" | "completed";
   message: string;
   timestamp: Date;
 }
@@ -56,7 +57,7 @@ export class EnrichmentAgent {
    * Record an error with recovery status
    */
   private recordError(
-    step: "extraction" | "analysis" | "tagging",
+    step: "extraction" | "analysis" | "tagging" | "embedding",
     error: unknown,
     recoverable: boolean = false
   ) {
@@ -164,7 +165,45 @@ export class EnrichmentAgent {
       };
     }
 
-    // Step 5: Compile final result
+    // Step 5: Generate embedding (unless skipped)
+    this.emitProgress("embedding", "Generating vector embedding...");
+    let embedding: number[] | undefined;
+    let embeddedAt: Date | undefined;
+
+    try {
+      if (options.skipEmbedding) {
+        console.log("[EnrichmentAgent] Skipping embedding (option set)");
+      } else {
+        const embedder = getEmbedderAgent();
+
+        // Create embedding from combined content:
+        // Title + Summary + Tags for best semantic search results
+        const embeddingText = [
+          extractedContent.title,
+          analysis.summary,
+          ...tagging.tags,
+        ].join(" ");
+
+        embedding = await embedder.embed({
+          text: embeddingText,
+          useCache: true,
+        });
+
+        embeddedAt = new Date();
+
+        console.log(
+          `[EnrichmentAgent] Generated embedding with ${embedding.length} dimensions`
+        );
+      }
+    } catch (error) {
+      this.recordError("embedding", error, true);
+      // Graceful degradation: bookmark is still usable without embedding
+      console.warn(
+        "[EnrichmentAgent] Failed to generate embedding, continuing without it"
+      );
+    }
+
+    // Step 6: Compile final result
     this.emitProgress("completed", "Enrichment complete!");
     const processingTime = Date.now() - startTime;
 
@@ -181,6 +220,8 @@ export class EnrichmentAgent {
       },
       analysis,
       tagging,
+      embedding,
+      embeddedAt,
       enrichedAt: new Date(),
       modelUsed: process.env.AI_MODEL || "gpt-4o-mini-2024-07-18",
       processingTimeMs: processingTime,

@@ -93,6 +93,14 @@ export const EnrichmentResultSchema = z.object({
   analysis: AnalysisResultSchema,
   tagging: TaggingResultSchema,
 
+  // Vector embedding for semantic search (1536 dimensions)
+  embedding: z
+    .array(z.number())
+    .length(1536)
+    .optional()
+    .describe("Vector embedding for semantic search"),
+  embeddedAt: z.date().optional().describe("Timestamp when embedding was generated"),
+
   // Processing metadata
   enrichedAt: z.date(),
   modelUsed: z.string(),
@@ -110,6 +118,7 @@ export const EnrichmentOptionsSchema = z.object({
   userNotes: z.string().optional(),
   skipAnalysis: z.boolean().optional().default(false),
   skipTagging: z.boolean().optional().default(false),
+  skipEmbedding: z.boolean().optional().default(false),
 });
 export type EnrichmentOptions = z.infer<typeof EnrichmentOptionsSchema>;
 
@@ -117,7 +126,7 @@ export type EnrichmentOptions = z.infer<typeof EnrichmentOptionsSchema>;
  * Error Types for graceful degradation
  */
 export const EnrichmentErrorSchema = z.object({
-  step: z.enum(["extraction", "analysis", "tagging"]),
+  step: z.enum(["extraction", "analysis", "tagging", "embedding"]),
   error: z.string(),
   timestamp: z.date(),
   recoverable: z.boolean(),

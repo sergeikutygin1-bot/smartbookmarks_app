@@ -34,6 +34,8 @@ export function loadBookmarksServer(): Bookmark[] {
       createdAt: new Date(bookmark.createdAt),
       updatedAt: new Date(bookmark.updatedAt),
       processedAt: bookmark.processedAt ? new Date(bookmark.processedAt) : null,
+      embeddedAt: bookmark.embeddedAt ? new Date(bookmark.embeddedAt) : undefined,
+      // embedding is already an array, no conversion needed
     }));
   } catch (error) {
     console.error('Failed to load bookmarks from server storage:', error);

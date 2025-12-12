@@ -1,7 +1,7 @@
 "use client";
 
 import { useBookmarksStore } from "@/store/bookmarksStore";
-import { useBookmarks } from "@/hooks/useBookmarks";
+import { useBookmarks, useHybridSearch } from "@/hooks/useBookmarks";
 import { useFilterStore } from "@/store/filterStore";
 import { BookmarkListItem } from "./BookmarkListItem";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -17,19 +17,34 @@ export function BookmarkList() {
     hasActiveFilters,
   } = useFilterStore();
 
-  // Build filters object for the hook
-  const filters = {
-    searchQuery: searchQuery || undefined,
+  // Build non-search filters for hybrid search
+  const nonSearchFilters = {
     types: selectedTypes.length > 0 ? selectedTypes : undefined,
     sources: selectedSources.length > 0 ? selectedSources : undefined,
     dateFrom: dateRange.from || undefined,
     dateTo: dateRange.to || undefined,
   };
 
-  const { data: bookmarks, isLoading, error } = useBookmarks(
-    // Only pass filters if at least one is active
-    hasActiveFilters() ? filters : undefined
+  // Build all filters for regular search
+  const allFilters = {
+    searchQuery: searchQuery || undefined,
+    ...nonSearchFilters,
+  };
+
+  // Use hybrid search if there's a search query, otherwise use regular fetch
+  const hybridSearchResult = useHybridSearch(
+    searchQuery || '',
+    nonSearchFilters
   );
+
+  const regularResult = useBookmarks(
+    hasActiveFilters() && !searchQuery ? allFilters : undefined
+  );
+
+  // Choose which result to use based on whether we're searching
+  const { data: bookmarks, isLoading, error } = searchQuery
+    ? hybridSearchResult
+    : regularResult;
 
   if (isLoading) {
     return (

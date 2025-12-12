@@ -14,13 +14,14 @@ import { enrichUrl } from "./agents/enrichmentAgent";
 import { logger } from "./services/logger";
 import { enrichmentTracker } from "./services/enrichmentTracker";
 import adminRoutes from "./routes/admin";
+import searchRoutes from "./routes/search";
 
 const app = express();
 const PORT = process.env.PORT || 3002;
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Increase limit for vector embeddings
 
 // Request logging middleware - filter out noisy admin routes
 app.use((req, res, next) => {
@@ -40,28 +41,53 @@ app.get("/health", (req, res) => {
 // Admin dashboard routes
 app.use("/admin", adminRoutes);
 
+// Search routes
+app.use("/search", searchRoutes);
+
 // Enrichment endpoint
 app.post("/enrich", async (req, res) => {
-  const enrichmentId = enrichmentTracker.startEnrichment(req.body.url);
+  const { url, existingTags = [] } = req.body;
+
+  if (!url) {
+    return res.status(400).json({ error: "URL is required" });
+  }
+
+  const enrichmentId = enrichmentTracker.startEnrichment(url);
 
   try {
-    const { url, existingTags = [] } = req.body;
+    logger.info("server", `Enriching URL: ${url}`);
 
-    if (!url) {
-      enrichmentTracker.failEnrichment(enrichmentId, "URL is required");
-      return res.status(400).json({ error: "URL is required" });
+    // Create agent with progress tracking
+    const { EnrichmentAgent } = await import('./agents/enrichmentAgent');
+    const agent = new EnrichmentAgent();
+
+    // Track progress in enrichmentTracker
+    agent.onProgress((progress) => {
+      logger.debug("enrichment", `Progress: ${progress.step}`, {
+        message: progress.message
+      });
+    });
+
+    const startTime = Date.now();
+    const result = await agent.enrich({ url, existingTags });
+    const duration = Date.now() - startTime;
+
+    // Record step successes/failures
+    const errors = agent.getErrors();
+    if (errors.length > 0) {
+      errors.forEach((err) => {
+        const stepDuration = 0; // Duration not tracked per step currently
+        enrichmentTracker.recordStep(enrichmentId, err.step as any, false, stepDuration);
+      });
     }
 
-    logger.info("server", `Enriching URL: ${url}`);
-    const startTime = Date.now();
-
-    const result = await enrichUrl(url, existingTags);
-
-    const duration = Date.now() - startTime;
+    // Mark as complete (even with non-critical errors)
     enrichmentTracker.completeEnrichment(enrichmentId);
+
     logger.info("server", `Enrichment completed in ${duration}ms`, {
       url,
       duration,
+      errors: errors.length,
     });
 
     res.json(result);
@@ -72,7 +98,8 @@ app.post("/enrich", async (req, res) => {
 
     logger.error("server", "Enrichment failed", {
       error: errorMessage,
-      url: req.body.url,
+      url,
+      stack: error instanceof Error ? error.stack : undefined,
     });
 
     res.status(500).json({
@@ -90,6 +117,7 @@ app.listen(PORT, () => {
   console.log(`\n📍 Server running on http://localhost:${PORT}`);
   console.log(`   Health check:     GET  http://localhost:${PORT}/health`);
   console.log(`   Enrich endpoint:  POST http://localhost:${PORT}/enrich`);
+  console.log(`   Search endpoint:  POST http://localhost:${PORT}/search`);
   console.log(`   Admin dashboard:  GET  http://localhost:${PORT}/admin`);
   console.log("\n" + "=".repeat(60) + "\n");
 

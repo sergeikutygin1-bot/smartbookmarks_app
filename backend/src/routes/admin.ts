@@ -160,6 +160,57 @@ function getInlineAdminHTML(): string {
     .stat-card h3 { color: #4CAF50; font-size: 14px; margin-bottom: 10px; }
     .stat-card .value { font-size: 32px; font-weight: bold; color: #fff; }
     .stat-card .label { font-size: 12px; color: #888; margin-top: 5px; }
+    .error-container {
+      background: #2a0a0a;
+      border: 2px solid #F44336;
+      border-radius: 8px;
+      padding: 15px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-bottom: 30px;
+    }
+    .error-card {
+      background: #1a0a0a;
+      border: 1px solid #c62828;
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .error-card:last-child { margin-bottom: 0; }
+    .error-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .error-url {
+      font-family: monospace;
+      font-size: 12px;
+      color: #fff;
+      max-width: 500px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .error-time {
+      font-size: 11px;
+      color: #888;
+    }
+    .error-message {
+      color: #F44336;
+      font-size: 13px;
+      font-weight: bold;
+      margin-top: 8px;
+      padding: 8px;
+      background: #000;
+      border-radius: 4px;
+      border-left: 3px solid #F44336;
+    }
+    .error-steps {
+      font-size: 11px;
+      color: #888;
+      margin-top: 8px;
+    }
     .log-container {
       background: #000;
       border: 1px solid #333;
@@ -209,6 +260,11 @@ function getInlineAdminHTML(): string {
     <p style="color: #888; margin-bottom: 20px;">Real-time monitoring and debugging interface</p>
 
     <div class="stats" id="stats"></div>
+
+    <h2>🚨 Failed Enrichments</h2>
+    <div class="error-container" id="errors">
+      <p style="color: #888; font-size: 14px;">No failed enrichments yet</p>
+    </div>
 
     <h2>📊 Live Logs</h2>
     <button onclick="clearLogs()">Clear Logs</button>
@@ -320,6 +376,35 @@ function getInlineAdminHTML(): string {
     }
 
     function updateEnrichments(data) {
+      // Update errors section
+      const errorsDiv = document.getElementById('errors');
+      const failedEnrichments = data.history.filter(e => e.status === 'failed');
+
+      if (failedEnrichments.length === 0) {
+        errorsDiv.innerHTML = '<p style="color: #888; font-size: 14px;">No failed enrichments yet</p>';
+      } else {
+        errorsDiv.innerHTML = failedEnrichments.slice(0, 5).map(e => {
+          const time = new Date(e.startedAt).toLocaleString();
+          const failedSteps = Object.keys(e.steps)
+            .filter(s => !e.steps[s].success)
+            .join(', ');
+
+          return \`
+            <div class="error-card">
+              <div class="error-header">
+                <div class="error-url" title="\${e.url}">\${e.url}</div>
+                <div class="error-time">\${time}</div>
+              </div>
+              <div class="error-message">
+                ❌ \${e.error || 'Unknown error'}
+              </div>
+              \${failedSteps ? \`<div class="error-steps">Failed steps: \${failedSteps}</div>\` : ''}
+            </div>
+          \`;
+        }).join('');
+      }
+
+      // Update enrichments table
       const tbody = document.getElementById('enrichments');
       tbody.innerHTML = data.history.map(e => {
         const time = new Date(e.startedAt).toLocaleTimeString();

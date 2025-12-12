@@ -16,6 +16,9 @@ export interface Bookmark {
   createdAt: Date;
   updatedAt: Date;
   processedAt?: Date | null;
+  // Vector embedding for semantic search (1536 dimensions)
+  embedding?: number[];
+  embeddedAt?: Date;
 }
 
 /**

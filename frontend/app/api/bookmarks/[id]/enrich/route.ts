@@ -71,7 +71,7 @@ export async function POST(
         }
       }
 
-      // Update bookmark with enriched data
+      // Update bookmark with enriched data (including embeddings)
       const updatedBookmark = {
         ...bookmark,
         title: enrichmentData.title || bookmark.title,
@@ -79,6 +79,10 @@ export async function POST(
         contentType: enrichmentData.contentType || bookmark.contentType,
         summary: formattedSummary || bookmark.summary,
         tags: enrichmentData.tagging?.tags || bookmark.tags,
+        embedding: enrichmentData.embedding || bookmark.embedding,
+        embeddedAt: enrichmentData.embeddedAt
+          ? new Date(enrichmentData.embeddedAt)
+          : bookmark.embeddedAt,
         updatedAt: new Date(),
         processedAt: new Date(),
       };

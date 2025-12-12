@@ -176,4 +176,76 @@ export const bookmarksApi = {
       processedAt: json.data.processedAt ? new Date(json.data.processedAt) : null,
     };
   },
+
+  /**
+   * Search bookmarks using hybrid search (keyword + semantic)
+   * This calls the backend search service which combines both approaches
+   */
+  async searchHybrid(
+    query: string,
+    bookmarks: Bookmark[],
+    options?: {
+      topK?: number;
+      semanticWeight?: number;
+      minScore?: number;
+    }
+  ): Promise<{ bookmarks: Bookmark[]; results: any[] }> {
+    // If no query or no bookmarks, return empty
+    if (!query.trim() || bookmarks.length === 0) {
+      return { bookmarks: [], results: [] };
+    }
+
+    // Prepare searchable items (include only necessary fields for backend)
+    const searchableItems = bookmarks.map((b) => ({
+      id: b.id,
+      title: b.title,
+      tags: b.tags,
+      summary: b.summary || '',
+      embedding: b.embedding,
+    }));
+
+    // Call backend search endpoint
+    const response = await fetch('http://localhost:3002/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        bookmarks: searchableItems,
+        topK: options?.topK || 10,
+        semanticWeight: options?.semanticWeight || 0.6,
+        minScore: options?.minScore || 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Hybrid search failed, falling back to keyword search');
+      // Fallback to keyword-only filtering
+      const filtered = bookmarks.filter((b) =>
+        b.title.toLowerCase().includes(query.toLowerCase()) ||
+        b.tags.some((t) => t.toLowerCase().includes(query.toLowerCase()))
+      );
+      return {
+        bookmarks: filtered,
+        results: filtered.map((b) => ({
+          id: b.id,
+          hybridScore: 0.5,
+          keywordScore: 0.5,
+          semanticScore: 0,
+        })),
+      };
+    }
+
+    const json = await response.json();
+
+    // Reorder bookmarks based on search results
+    const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]));
+    const rankedBookmarks = json.results
+      .map((result: any) => bookmarkMap.get(result.id))
+      .filter((b): b is Bookmark => b !== undefined);
+
+    return {
+      bookmarks: rankedBookmarks,
+      results: json.results,
+    };
+  },
 };

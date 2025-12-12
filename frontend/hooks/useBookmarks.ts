@@ -211,3 +211,63 @@ export function useEnrichBookmark() {
     },
   });
 }
+
+/**
+ * Hybrid search (keyword + semantic) for bookmarks
+ * Automatically combines traditional search with AI-powered semantic search
+ */
+export function useHybridSearch(query: string, filters?: Omit<BookmarkFilters, 'searchQuery'>) {
+  // First, fetch ALL bookmarks (no filters - we'll filter in the search)
+  // This ensures we use the same cached query as the main bookmark list
+  const { data: allBookmarks, isLoading: isLoadingBookmarks, error: bookmarksError } = useBookmarks(undefined);
+
+  // Then, perform hybrid search if we have a query and bookmarks
+  const searchResult = useQuery({
+    queryKey: ['hybrid-search', query, filters],
+    queryFn: async () => {
+      if (!allBookmarks || allBookmarks.length === 0) {
+        return [];
+      }
+
+      // Apply non-search filters before sending to backend
+      let filteredBookmarks = allBookmarks;
+
+      if (filters?.types && filters.types.length > 0) {
+        filteredBookmarks = filteredBookmarks.filter(b => filters.types!.includes(b.contentType));
+      }
+
+      if (filters?.sources && filters.sources.length > 0) {
+        filteredBookmarks = filteredBookmarks.filter(b =>
+          filters.sources!.some(source => b.domain.toLowerCase().includes(source.toLowerCase()))
+        );
+      }
+
+      if (filters?.dateFrom) {
+        filteredBookmarks = filteredBookmarks.filter(b => b.createdAt >= filters.dateFrom!);
+      }
+
+      if (filters?.dateTo) {
+        const dateTo = new Date(filters.dateTo);
+        dateTo.setHours(23, 59, 59, 999);
+        filteredBookmarks = filteredBookmarks.filter(b => b.createdAt <= dateTo);
+      }
+
+      const result = await bookmarksApi.searchHybrid(query, filteredBookmarks, {
+        topK: 50, // Return top 50 results
+        semanticWeight: 0.6, // 60% semantic, 40% keyword
+        minScore: 0.3, // Minimum relevance threshold (30% relevant or higher)
+      });
+
+      return result.bookmarks;
+    },
+    enabled: !!query && !!allBookmarks && allBookmarks.length > 0,
+    staleTime: 1000 * 60, // 1 minute (hybrid search is more expensive)
+  });
+
+  // If we're still loading bookmarks, return loading state
+  if (isLoadingBookmarks) {
+    return { ...searchResult, isLoading: true };
+  }
+
+  return searchResult;
+}

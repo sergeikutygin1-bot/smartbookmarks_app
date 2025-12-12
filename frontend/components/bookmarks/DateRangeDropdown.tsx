@@ -5,7 +5,7 @@ import { useFilterStore } from "@/store/filterStore";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { CalendarIcon, ChevronDown, X } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { format } from "date-fns";
 
 type DatePreset = {
@@ -59,12 +59,6 @@ export function DateRangeDropdown({ fullWidth = false }: DateRangeDropdownProps)
     setCustomMode(false);
   };
 
-  const handleClearDate = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDateRange(null, null);
-    setCustomMode(false);
-  };
-
   const getButtonLabel = () => {
     if (!hasDateFilter) return "Date";
     if (dateRange.from && dateRange.to) {
@@ -85,24 +79,15 @@ export function DateRangeDropdown({ fullWidth = false }: DateRangeDropdownProps)
         <Button
           variant="outline"
           size="sm"
-          className={`h-9 px-4 text-sm font-normal border-sidebar-border bg-sidebar text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all duration-200 ${fullWidth ? 'w-full' : 'min-w-[100px]'}`}
+          className={`h-9 px-4 text-sm font-normal border-sidebar-border bg-sidebar text-foreground hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all duration-200 ${fullWidth ? 'w-full justify-between' : 'min-w-[100px]'}`}
         >
-          <div className={`flex items-center ${fullWidth ? 'w-full justify-between' : ''}`}>
-            <div className="flex items-center">
-              <CalendarIcon className="mr-2 h-4 w-4 opacity-50" />
-              <span className={hasDateFilter ? "" : "opacity-70"}>
-                {getButtonLabel()}
-              </span>
-            </div>
-            {hasDateFilter ? (
-              <X
-                className="ml-2 h-4 w-4 opacity-50 hover:opacity-100"
-                onClick={handleClearDate}
-              />
-            ) : (
-              <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
+          <span>
+            {getButtonLabel()}
+            {hasDateFilter && (
+              <span className="ml-1.5 opacity-70">✓</span>
             )}
-          </div>
+          </span>
+          <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
