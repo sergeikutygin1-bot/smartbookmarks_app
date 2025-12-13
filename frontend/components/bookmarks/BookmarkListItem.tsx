@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Bookmark } from "@/store/bookmarksStore";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
@@ -8,6 +8,7 @@ import { formatDistanceToNow } from "date-fns";
 import { X } from "lucide-react";
 import { useDeleteBookmark } from "@/hooks/useBookmarks";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
+import { useVisibleTags } from "@/hooks/useVisibleTags";
 
 interface BookmarkListItemProps {
   bookmark: Bookmark;
@@ -18,6 +19,16 @@ interface BookmarkListItemProps {
 export function BookmarkListItem({ bookmark, isSelected, onClick }: BookmarkListItemProps) {
   const deleteMutation = useDeleteBookmark();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const tagsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Calculate how many tags can fit dynamically
+  const visibleTagCount = useVisibleTags({
+    tags: bookmark.tags,
+    containerRef: tagsContainerRef,
+  });
+
+  // Check if this is an empty bookmark (no URL filled in yet)
+  const isEmpty = !bookmark.url || bookmark.url === '' || bookmark.title === 'Untitled bookmark';
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent selecting the bookmark when clicking delete
@@ -49,34 +60,34 @@ export function BookmarkListItem({ bookmark, isSelected, onClick }: BookmarkList
       {/* Title */}
       <h3 className={`
         font-display font-semibold text-sm mb-1 line-clamp-2 leading-snug
-        ${isSelected ? 'text-sidebar-foreground' : 'text-sidebar-foreground'}
+        ${isEmpty ? 'italic text-muted-foreground' : 'text-sidebar-foreground'}
       `}>
         {bookmark.title}
       </h3>
 
       {/* Domain and date */}
       <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-        <span className="truncate">{bookmark.domain}</span>
+        <span className="truncate">{bookmark.domain || 'No URL'}</span>
         <span>•</span>
         <span className="whitespace-nowrap">
-          {formatDistanceToNow(bookmark.createdAt, { addSuffix: true })}
+          {formatDistanceToNow(bookmark.updatedAt, { addSuffix: true })}
         </span>
       </div>
 
       {/* Tags */}
       {bookmark.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {bookmark.tags.slice(0, 3).map((tag) => (
+        <div ref={tagsContainerRef} className="flex gap-1.5 overflow-hidden">
+          {bookmark.tags.slice(0, visibleTagCount).map((tag) => (
             <Badge
               key={tag}
-              className="text-[10px] px-1.5 py-0 h-5 bg-primary text-primary-foreground rounded-md"
+              className="text-[10px] px-1.5 py-0 h-5 bg-primary text-primary-foreground rounded-md flex-shrink-0"
             >
               {tag}
             </Badge>
           ))}
-          {bookmark.tags.length > 3 && (
-            <Badge className="text-[10px] px-1.5 py-0 h-5 bg-primary text-primary-foreground rounded-md">
-              +{bookmark.tags.length - 3}
+          {bookmark.tags.length > visibleTagCount && (
+            <Badge className="text-[10px] px-1.5 py-0 h-5 bg-primary text-primary-foreground rounded-md flex-shrink-0">
+              +{bookmark.tags.length - visibleTagCount}
             </Badge>
           )}
         </div>

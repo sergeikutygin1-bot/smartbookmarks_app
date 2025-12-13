@@ -27,6 +27,12 @@ async function retryWithBackoff<T>(
         throw lastError;
       }
 
+      // Don't retry URL validation errors (retrying won't help if URL doesn't exist)
+      if (lastError.name === 'URLValidationError') {
+        console.log(`[Retry] URL validation error, not retrying`);
+        throw lastError;
+      }
+
       // Don't retry on the last attempt
       if (attempt === retries) {
         break;
@@ -45,7 +51,7 @@ async function retryWithBackoff<T>(
     }
   }
 
-  // All retries exhausted, throw enriched error with attempt count
+  // All retries exhausted, throw error with attempt count
   const enrichedError = new Error(
     `Failed after ${retries + 1} attempts: ${lastError?.message || 'Unknown error'}`
   );
@@ -222,19 +228,22 @@ export const bookmarksApi = {
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
 
-        // Create detailed error message based on response status
+        // Get the error message from backend
         let errorMessage = error.error || error.message || 'Failed to enrich bookmark';
 
-        if (response.status === 500) {
-          errorMessage = `Server error: ${errorMessage}`;
-        } else if (response.status === 404) {
-          errorMessage = 'Bookmark not found';
-        } else if (response.status === 400) {
-          errorMessage = `Invalid request: ${errorMessage}`;
-        } else if (response.status === 504 || response.status === 502) {
-          errorMessage = 'Request timeout - the AI service took too long to respond';
+        // Check if this is a URL validation error (shouldn't be retried)
+        const isUrlValidationError = errorMessage.includes('URL could not be accessed') ||
+                                      errorMessage.includes('not accessible') ||
+                                      errorMessage.includes('Could not connect');
+
+        // For URL validation errors, create a special error that won't be retried
+        if (isUrlValidationError) {
+          const urlError = new Error(errorMessage);
+          urlError.name = 'URLValidationError'; // Special name to skip retries
+          throw urlError;
         }
 
+        // For other errors, use the message as-is (backend already provides user-friendly messages)
         throw new Error(errorMessage);
       }
 

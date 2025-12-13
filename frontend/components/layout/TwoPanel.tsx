@@ -10,8 +10,8 @@ interface TwoPanelProps {
 export function TwoPanel({ sidebar, main }: TwoPanelProps) {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
-      {/* Sidebar - 1/5 width */}
-      <aside className="w-1/5 min-w-[280px] max-w-[360px] h-full border-r border-border bg-sidebar overflow-hidden">
+      {/* Sidebar - 1/4 width */}
+      <aside className="w-1/4 min-w-[320px] max-w-[450px] h-full border-r border-border bg-sidebar overflow-hidden">
         {sidebar}
       </aside>
 

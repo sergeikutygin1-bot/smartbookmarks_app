@@ -30,10 +30,62 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const [tags, setTags] = useState<string[]>(bookmark.tags);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTagValue, setNewTagValue] = useState("");
+  const [isUrlValid, setIsUrlValid] = useState(true);
+  const lastInvalidUrlRef = useRef<string>("");
   const tagInputRef = useRef<HTMLInputElement>(null);
 
   // Track if we're actively saving
   const isSaving = updateMutation.isPending;
+
+  // Validate URL format (basic check only - backend will verify accessibility)
+  const validateUrl = (urlString: string): boolean => {
+    if (!urlString || urlString === '') return true; // Empty is okay (untitled bookmark)
+
+    try {
+      const url = new URL(urlString);
+
+      // Only check for http/https protocol - backend handles everything else
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return false;
+      }
+
+      return true;
+    } catch {
+      // If URL() constructor fails, it's definitely invalid
+      return false;
+    }
+  };
+
+  // Validate URL and show toast if invalid
+  const validateAndNotify = (urlToValidate: string) => {
+    if (!urlToValidate || urlToValidate === '') {
+      setIsUrlValid(true);
+      lastInvalidUrlRef.current = "";
+      return true;
+    }
+
+    const isValid = validateUrl(urlToValidate);
+    setIsUrlValid(isValid);
+
+    // Only show toast once per invalid URL (using ref for immediate sync)
+    if (!isValid && urlToValidate !== lastInvalidUrlRef.current) {
+      lastInvalidUrlRef.current = urlToValidate; // Update immediately to prevent duplicate toasts
+      toast.error("Invalid URL - Please enter a valid URL starting with http:// or https://", {
+        duration: 5000,
+        className: "font-semibold",
+      });
+    } else if (isValid) {
+      lastInvalidUrlRef.current = "";
+    }
+
+    return isValid;
+  };
+
+  // Handle URL change (no immediate validation)
+  const handleUrlChange = (newUrl: string) => {
+    setUrl(newUrl);
+    // Don't validate immediately - wait for debounce or user action
+  };
 
   // Sync local state when bookmark changes (user selects different bookmark or data updates)
   useEffect(() => {
@@ -43,6 +95,8 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     setTags(bookmark.tags);
     setIsAddingTag(false);
     setNewTagValue("");
+    setIsUrlValid(true); // Reset validation state when switching bookmarks
+    lastInvalidUrlRef.current = ""; // Reset error tracking when switching bookmarks
   }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags]);
 
   // Focus tag input when adding tag
@@ -51,6 +105,20 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
       tagInputRef.current.focus();
     }
   }, [isAddingTag]);
+
+  // Debounced URL validation - validate after user stops typing for 3 seconds
+  useEffect(() => {
+    if (!url || url === '') {
+      setIsUrlValid(true);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      validateAndNotify(url);
+    }, 3000); // 3 seconds after user stops typing
+
+    return () => clearTimeout(timer);
+  }, [url]);
 
   // Auto-save with debounce
   useEffect(() => {
@@ -107,6 +175,11 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const handleEnrich = async () => {
     if (!bookmark.id || isEnriching) return;
 
+    // Validate URL before enriching
+    if (!validateAndNotify(url)) {
+      return; // Don't proceed if URL is invalid
+    }
+
     console.log(`[BookmarkNote] Starting enrichment for: ${bookmark.id}`);
 
     try {
@@ -122,6 +195,9 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
       // Show success toast
       toast.success("AI enrichment completed!", {
         description: "Summary, tags, and metadata have been updated.",
+        classNames: {
+          description: "!text-foreground/90 !font-medium", // Higher contrast description
+        },
       });
     } catch (error) {
       // Check if this was an abort (user cancelled)
@@ -133,7 +209,13 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
         return;
       }
 
-      console.error(`[BookmarkNote] Enrichment failed for: ${bookmark.id}`, error);
+      // Check if this is a URL validation error (expected, not a bug)
+      const isUrlError = error instanceof Error && error.name === 'URLValidationError';
+
+      // Only log unexpected errors to console (URL validation errors are expected user feedback)
+      if (!isUrlError) {
+        console.error(`[BookmarkNote] Enrichment failed for: ${bookmark.id}`, error);
+      }
 
       // Extract error message
       const errorMessage = error instanceof Error
@@ -141,16 +223,29 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
         : "An unexpected error occurred while enriching the bookmark.";
 
       // Determine error type for better user messaging
+      const isUrlAccessError = errorMessage.includes('URL could not be accessed') ||
+                               errorMessage.includes('not accessible') ||
+                               errorMessage.includes('Could not connect');
       const isRetryFailure = errorMessage.includes('Failed after');
-      const errorTitle = isRetryFailure
+
+      const errorTitle = isUrlAccessError
+        ? "Unable to access URL"
+        : isRetryFailure
         ? "AI enrichment failed after multiple attempts"
         : "AI enrichment failed";
 
+      const errorDescription = isUrlAccessError
+        ? errorMessage + " Please verify the URL is correct and try again."
+        : errorMessage;
+
       // Show detailed error toast
       toast.error(errorTitle, {
-        description: errorMessage,
+        description: errorDescription,
         duration: 8000, // Longer duration for important errors
-        action: {
+        classNames: {
+          description: "!text-foreground/90 !font-medium", // Higher contrast description
+        },
+        action: isUrlAccessError ? undefined : {
           label: "Try Again",
           onClick: () => handleEnrich(),
         },
@@ -192,7 +287,7 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
         )}
       </AnimatePresence>
 
-      <div className="max-w-3xl mx-auto space-y-8">
+      <div className="max-w-5xl mx-auto space-y-8">
         {/* Title - Golden Ratio: 56px (3.5rem) - Commanding headline */}
         <div>
           <Input
@@ -205,18 +300,26 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
 
         {/* URL with cobalt "Open" button */}
         <div className="flex items-center gap-3">
-          <ExternalLink className="h-4 w-4 text-primary flex-shrink-0" />
+          <ExternalLink className={`h-4 w-4 flex-shrink-0 ${!isUrlValid ? 'text-destructive' : 'text-primary'}`} />
           <Input
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={(e) => handleUrlChange(e.target.value)}
             placeholder="https://example.com"
-            className="text-xs text-primary border-0 px-2 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-0 h-auto py-1 font-medium transition-all duration-200 hover:bg-muted/20 rounded-md -ml-2"
+            className={`text-xs border-0 px-2 focus-visible:ring-2 focus-visible:ring-offset-0 h-auto py-1 font-medium transition-all duration-200 hover:bg-muted/20 rounded-md -ml-2 ${
+              !isUrlValid
+                ? 'text-destructive focus-visible:ring-destructive'
+                : 'text-primary focus-visible:ring-primary'
+            }`}
           />
           <Button
             size="sm"
             variant="default"
             className="flex-shrink-0 h-8 text-xs font-semibold transition-all duration-200"
-            onClick={() => window.open(url, '_blank')}
+            onClick={() => {
+              if (validateAndNotify(url)) {
+                window.open(url, '_blank');
+              }
+            }}
             disabled={!url}
           >
             Open

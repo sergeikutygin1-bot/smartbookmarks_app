@@ -6,6 +6,7 @@ import { useFilterStore } from "@/store/filterStore";
 import { BookmarkListItem } from "./BookmarkListItem";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
+import { groupBookmarksByDate } from "@/lib/date-grouping";
 
 export function BookmarkList() {
   const { selectedBookmarkId, selectBookmark } = useBookmarksStore();
@@ -82,49 +83,68 @@ export function BookmarkList() {
     );
   }
 
+  // Group bookmarks by date (Apple Notes style)
+  const groupedBookmarks = groupBookmarksByDate(
+    bookmarks.filter((bookmark) => bookmark.id)
+  );
+
   return (
     <ScrollArea className="h-full w-full">
-      <motion.div
-        className="space-y-0.5 pb-4"
-        initial={false}
-      >
+      <div className="pb-4">
         <AnimatePresence mode="popLayout">
-          {bookmarks
-            .filter((bookmark) => bookmark.id)
-            .map((bookmark, index) => (
-              <motion.div
-                key={bookmark.id}
-                layout
-                initial={{ opacity: 0, height: 0, y: -20 }}
-                animate={{
-                  opacity: 1,
-                  height: "auto",
-                  y: 0,
-                  transition: {
-                    duration: 0.2,
-                    delay: index * 0.02, // Stagger effect
-                    ease: "easeOut"
-                  }
-                }}
-                exit={{
-                  opacity: 0,
-                  height: 0,
-                  y: -10,
-                  transition: {
-                    duration: 0.15,
-                    ease: "easeIn"
-                  }
-                }}
-              >
-                <BookmarkListItem
-                  bookmark={bookmark}
-                  isSelected={selectedBookmarkId === bookmark.id}
-                  onClick={() => selectBookmark(bookmark.id)}
-                />
-              </motion.div>
-            ))}
+          {groupedBookmarks.map((group, groupIndex) => (
+            <motion.div
+              key={group.label}
+              layout
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="mb-6"
+            >
+              {/* Section Header */}
+              <h2 className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider sticky top-0 bg-sidebar z-10">
+                {group.label}
+              </h2>
+
+              {/* Bookmarks in this group */}
+              <div className="space-y-0.5">
+                {group.bookmarks.map((bookmark, index) => (
+                  <motion.div
+                    key={bookmark.id}
+                    layout
+                    initial={{ opacity: 0, height: 0, y: -20 }}
+                    animate={{
+                      opacity: 1,
+                      height: "auto",
+                      y: 0,
+                      transition: {
+                        duration: 0.2,
+                        delay: groupIndex * 0.1 + index * 0.02,
+                        ease: "easeOut",
+                      },
+                    }}
+                    exit={{
+                      opacity: 0,
+                      height: 0,
+                      y: -10,
+                      transition: {
+                        duration: 0.15,
+                        ease: "easeIn",
+                      },
+                    }}
+                  >
+                    <BookmarkListItem
+                      bookmark={bookmark}
+                      isSelected={selectedBookmarkId === bookmark.id}
+                      onClick={() => selectBookmark(bookmark.id)}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          ))}
         </AnimatePresence>
-      </motion.div>
+      </div>
     </ScrollArea>
   );
 }

@@ -46,20 +46,31 @@ export function useCreateBookmark() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: { url: string; title?: string }) => bookmarksApi.create(data),
-    onMutate: async (newBookmarkData) => {
+    mutationFn: (data?: { url?: string; title?: string }) => bookmarksApi.create(data || {}),
+    onMutate: async (newBookmarkData = {}) => {
       // Cancel outgoing refetches
       await queryClient.cancelQueries({ queryKey: bookmarksKeys.lists() });
 
       // Snapshot previous value
       const previousBookmarks = queryClient.getQueryData<Bookmark[]>(bookmarksKeys.lists());
 
+      // Extract domain from URL if provided
+      let domain = '';
+      if (newBookmarkData.url) {
+        try {
+          domain = new URL(newBookmarkData.url).hostname.replace('www.', '');
+        } catch {
+          // Invalid URL - use empty domain
+          domain = '';
+        }
+      }
+
       // Optimistically update with temporary ID
       const optimisticBookmark: Bookmark = {
         id: 'temp-' + Date.now(),
-        url: newBookmarkData.url,
-        title: newBookmarkData.title || newBookmarkData.url,
-        domain: new URL(newBookmarkData.url).hostname.replace('www.', ''),
+        url: newBookmarkData.url || '',
+        title: newBookmarkData.title || (newBookmarkData.url ? newBookmarkData.url : 'Untitled bookmark'),
+        domain,
         contentType: 'other',
         tags: [],
         summary: '',

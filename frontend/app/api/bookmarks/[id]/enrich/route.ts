@@ -57,7 +57,9 @@ export async function POST(
 
       if (!enrichResponse.ok) {
         const errorData = await enrichResponse.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Enrichment service failed');
+        // Pass through the specific error message from the backend
+        const errorMessage = errorData.error || errorData.message || 'Enrichment service failed';
+        throw new Error(errorMessage);
       }
 
       const enrichmentData = await enrichResponse.json();
@@ -93,11 +95,16 @@ export async function POST(
     } catch (enrichError) {
       console.error('Enrichment failed:', enrichError);
 
+      // Extract the actual error message from the backend
+      const errorMessage = enrichError instanceof Error
+        ? enrichError.message
+        : 'The bookmark was found but AI processing failed. Please try again.';
+
       // Return partial success - bookmark exists but enrichment failed
       return NextResponse.json(
         {
-          error: 'AI enrichment failed',
-          message: 'The bookmark was found but AI processing failed. Please try again.',
+          error: errorMessage, // Pass through the actual error message
+          message: errorMessage,
           data: bookmark,
         },
         { status: 500 }

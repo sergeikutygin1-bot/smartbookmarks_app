@@ -7,14 +7,14 @@ import { BookmarkList } from "./BookmarkList";
 import { FilterBar } from "./FilterBar";
 import { Search, Plus } from "lucide-react";
 import { useFilterStore } from "@/store/filterStore";
+import { useCreateBookmark } from "@/hooks/useBookmarks";
+import { useBookmarksStore } from "@/store/bookmarksStore";
 
-interface SidebarProps {
-  onCreateClick: () => void;
-}
-
-export function Sidebar({ onCreateClick }: SidebarProps) {
+export function Sidebar() {
   const { searchQuery, setSearchQuery } = useFilterStore();
   const [localQuery, setLocalQuery] = useState(searchQuery);
+  const createMutation = useCreateBookmark();
+  const { selectBookmark } = useBookmarksStore();
 
   // Debounce search query updates (500ms)
   useEffect(() => {
@@ -24,6 +24,17 @@ export function Sidebar({ onCreateClick }: SidebarProps) {
 
     return () => clearTimeout(timer);
   }, [localQuery, setSearchQuery]);
+
+  // Handle instant bookmark creation (Apple Notes style)
+  const handleCreateBookmark = async () => {
+    try {
+      const bookmark = await createMutation.mutateAsync({});
+      // Auto-select the newly created bookmark
+      selectBookmark(bookmark.id);
+    } catch (error) {
+      console.error("Failed to create bookmark:", error);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -35,7 +46,8 @@ export function Sidebar({ onCreateClick }: SidebarProps) {
           </h1>
           <Button
             size="sm"
-            onClick={onCreateClick}
+            onClick={handleCreateBookmark}
+            disabled={createMutation.isPending}
             className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
             variant="ghost"
           >

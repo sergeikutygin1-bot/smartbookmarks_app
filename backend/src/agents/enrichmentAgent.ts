@@ -91,7 +91,7 @@ export class EnrichmentAgent {
     this.emitProgress("extraction", "Validating URL...");
     const isValid = await validateUrl(options.url);
     if (!isValid) {
-      throw new Error(`URL is not accessible: ${options.url}`);
+      throw new Error(`The URL could not be accessed. Please check that the link is correct and the website is available.`);
     }
 
     // Step 2: Extract content

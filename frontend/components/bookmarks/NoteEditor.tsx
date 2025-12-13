@@ -5,11 +5,7 @@ import { useBookmarks } from "@/hooks/useBookmarks";
 import { BookmarkNote } from "./BookmarkNote";
 import { BookmarkPlus } from "lucide-react";
 
-interface NoteEditorProps {
-  onCreateClick: () => void;
-}
-
-export function NoteEditor({ onCreateClick }: NoteEditorProps) {
+export function NoteEditor() {
   const { selectedBookmarkId } = useBookmarksStore();
   const { data: bookmarks } = useBookmarks();
   const selectedBookmark = bookmarks?.find((b) => b.id === selectedBookmarkId);

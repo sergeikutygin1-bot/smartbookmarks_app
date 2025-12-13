@@ -222,6 +222,20 @@ export async function extractContent(
   } catch (error) {
     console.error("Content extraction failed:", error);
 
+    // Provide user-friendly error message
+    let errorMessage = "Unknown error";
+    if (error instanceof Error) {
+      if (error.message.includes("ENOTFOUND") || error.message.includes("ECONNREFUSED")) {
+        errorMessage = "Could not connect to this URL. The website may not exist or may be temporarily unavailable.";
+      } else if (error.message.includes("timeout")) {
+        errorMessage = "The website took too long to respond. Please try again later.";
+      } else if (error.message.includes("404")) {
+        errorMessage = "This page was not found (404 error). Please check the URL.";
+      } else {
+        errorMessage = error.message;
+      }
+    }
+
     // Return minimal data on error (graceful degradation)
     return {
       url,
@@ -233,7 +247,7 @@ export async function extractContent(
       extractionConfidence: 0,
       extractedAt: new Date(),
       metadata: {
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: errorMessage,
       },
     };
   }

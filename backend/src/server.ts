@@ -103,8 +103,8 @@ app.post("/enrich", async (req, res) => {
     });
 
     res.status(500).json({
-      error: "Enrichment failed",
-      message: errorMessage,
+      error: errorMessage, // Pass through the specific error message
+      message: errorMessage, // Keep message for backward compatibility
     });
   }
 });
