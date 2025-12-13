@@ -42,18 +42,28 @@ export type ExtractedContent = z.infer<typeof ExtractedContentSchema>;
 /**
  * Analysis Result Schema
  * Output from the analysis chain (LLM-generated)
+ *
+ * Enhanced schema that includes:
+ * - title: Improved/clarified title (not just copy-paste from source)
+ * - summary: Comprehensive 300-500 word structured summary
+ * - tags: 5-10 relevant tags for categorization
  */
 export const AnalysisResultSchema = z.object({
+  title: z
+    .string()
+    .min(5)
+    .max(150)
+    .describe("Improved, clear, and descriptive title (not clickbait or vague)"),
   summary: z
     .string()
-    .min(10)
-    .max(1000)
-    .describe("A concise 2-4 sentence summary of the content"),
-  keyPoints: z
-    .array(z.string().min(5).max(200))
+    .min(200)
+    .max(3500)
+    .describe("Comprehensive 300-500 word structured summary with detailed coverage of main arguments, evidence, examples, and key insights"),
+  tags: z
+    .array(z.string().min(1).max(50))
     .min(3)
     .max(5)
-    .describe("3-5 key takeaways or insights from the content"),
+    .describe("3-5 focused, high-quality tags for categorization and discovery"),
 });
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
 
@@ -111,16 +121,67 @@ export type EnrichmentResult = z.infer<typeof EnrichmentResultSchema>;
 /**
  * Enrichment Options Schema
  * Configuration for the enrichment agent
+ *
+ * Includes user-provided context to enable AI to merge/enhance existing content
+ * rather than blindly overwriting it
  */
 export const EnrichmentOptionsSchema = z.object({
   url: z.string().url(),
+
+  // User-provided context for merge & enhance strategy
+  userTitle: z.string().optional().describe("User's current title (if any)"),
+  userSummary: z.string().optional().describe("User's current summary (if any)"),
+  userTags: z.array(z.string()).optional().describe("User's current tags (if any)"),
+
+  // Existing tags from other bookmarks (for consistency)
   existingTags: z.array(z.string()).optional().default([]),
+
+  // Legacy field - kept for backward compatibility
   userNotes: z.string().optional(),
+
+  // Processing flags
   skipAnalysis: z.boolean().optional().default(false),
   skipTagging: z.boolean().optional().default(false),
   skipEmbedding: z.boolean().optional().default(false),
 });
 export type EnrichmentOptions = z.infer<typeof EnrichmentOptionsSchema>;
+
+/**
+ * Judge Result Schema
+ * Output from the LLM-as-a-Judge quality evaluation
+ *
+ * Evaluates AI-generated summaries on 4 key dimensions:
+ * - Comprehensiveness: Captures all key points
+ * - Accuracy: Factually consistent, no hallucinations
+ * - Formatting: Proper markdown usage
+ * - Clarity: Well-organized, logical flow
+ */
+export const JudgeResultSchema = z.object({
+  comprehensiveness: z
+    .enum(["pass", "fail"])
+    .describe("Does the summary capture all key points and important details?"),
+  accuracy: z
+    .enum(["pass", "fail"])
+    .describe("Is all information factually consistent with the source?"),
+  formatting: z
+    .enum(["pass", "fail"])
+    .describe("Does it use proper markdown (bold, bullets, headings)?"),
+  clarity: z
+    .enum(["pass", "fail"])
+    .describe("Is it well-organized with logical flow?"),
+  overall_verdict: z
+    .enum(["pass", "fail"])
+    .describe("Overall quality verdict (pass only if all criteria pass)"),
+  reasoning: z
+    .string()
+    .min(20)
+    .max(500)
+    .describe("Brief explanation of the judgment (2-3 sentences)"),
+  issues: z
+    .array(z.string())
+    .describe("List of specific quality issues found (empty if pass)"),
+});
+export type JudgeResult = z.infer<typeof JudgeResultSchema>;
 
 /**
  * Error Types for graceful degradation

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Bookmark } from "@/store/bookmarksStore";
 import { useUpdateBookmark, useEnrichBookmark } from "@/hooks/useBookmarks";
+import { useEnrichmentStore } from "@/store/enrichmentStore";
 import { Input } from "@/components/ui/input";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Badge } from "@/components/ui/badge";
@@ -19,13 +20,16 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const updateMutation = useUpdateBookmark();
   const enrichMutation = useEnrichBookmark();
 
+  // Get enrichment status from global store
+  const enrichmentStatus = useEnrichmentStore(state => state.getEnrichmentStatus(bookmark.id));
+  const isEnriching = useEnrichmentStore(state => state.isEnriching(bookmark.id));
+
   const [title, setTitle] = useState(bookmark.title);
   const [url, setUrl] = useState(bookmark.url);
   const [summary, setSummary] = useState(bookmark.summary || "");
   const [tags, setTags] = useState<string[]>(bookmark.tags);
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTagValue, setNewTagValue] = useState("");
-  const [isEnriching, setIsEnriching] = useState(false);
   const tagInputRef = useRef<HTMLInputElement>(null);
 
   // Track if we're actively saving
@@ -39,7 +43,6 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     setTags(bookmark.tags);
     setIsAddingTag(false);
     setNewTagValue("");
-    setIsEnriching(false); // Reset enriching state when switching bookmarks
   }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags]);
 
   // Focus tag input when adding tag
@@ -104,9 +107,13 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const handleEnrich = async () => {
     if (!bookmark.id || isEnriching) return;
 
-    setIsEnriching(true);
+    console.log(`[BookmarkNote] Starting enrichment for: ${bookmark.id}`);
+
     try {
       const enrichedBookmark = await enrichMutation.mutateAsync(bookmark.id);
+
+      console.log(`[BookmarkNote] Enrichment completed for: ${bookmark.id}`);
+
       // Update local state with enriched data
       setTitle(enrichedBookmark.title);
       setSummary(enrichedBookmark.summary || "");
@@ -117,24 +124,37 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
         description: "Summary, tags, and metadata have been updated.",
       });
     } catch (error) {
-      console.error('Enrichment failed:', error);
+      // Check if this was an abort (user cancelled)
+      const isAborted = error instanceof Error && error.name === 'AbortError';
+
+      if (isAborted) {
+        console.log(`[BookmarkNote] Enrichment cancelled for: ${bookmark.id}`);
+        // Don't show error toast for intentional cancellations
+        return;
+      }
+
+      console.error(`[BookmarkNote] Enrichment failed for: ${bookmark.id}`, error);
 
       // Extract error message
       const errorMessage = error instanceof Error
         ? error.message
         : "An unexpected error occurred while enriching the bookmark.";
 
-      // Show user-friendly error toast
-      toast.error("AI enrichment failed", {
+      // Determine error type for better user messaging
+      const isRetryFailure = errorMessage.includes('Failed after');
+      const errorTitle = isRetryFailure
+        ? "AI enrichment failed after multiple attempts"
+        : "AI enrichment failed";
+
+      // Show detailed error toast
+      toast.error(errorTitle, {
         description: errorMessage,
-        duration: 5000,
+        duration: 8000, // Longer duration for important errors
         action: {
-          label: "Retry",
+          label: "Try Again",
           onClick: () => handleEnrich(),
         },
       });
-    } finally {
-      setIsEnriching(false);
     }
   };
 
@@ -167,7 +187,7 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
             className="fixed top-4 right-6 text-sm font-medium text-primary pointer-events-none flex items-center gap-2"
           >
             <Loader2 className="h-4 w-4 animate-spin" />
-            Enriching with AI...
+            {enrichmentStatus === 'queued' ? 'Queued for enrichment...' : 'Enriching with AI...'}
           </motion.div>
         )}
       </AnimatePresence>
@@ -228,11 +248,14 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
                   exit={{ scale: 0, opacity: 0 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <Badge className="text-sm px-3 py-1 font-medium bg-primary hover:bg-primary/90 text-primary-foreground rounded-md group cursor-pointer">
+                  <Badge className="text-sm px-3 py-1 font-medium bg-primary hover:bg-primary/90 text-primary-foreground rounded-md group">
                     <span>{tag}</span>
                     <X
-                      className="h-3 w-3 ml-2 opacity-70 group-hover:opacity-100 transition-opacity"
-                      onClick={() => handleRemoveTag(tag)}
+                      className="h-3 w-3 ml-2 opacity-70 group-hover:opacity-100 transition-opacity cursor-pointer !pointer-events-auto"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveTag(tag);
+                      }}
                     />
                   </Badge>
                 </motion.div>

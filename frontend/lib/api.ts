@@ -2,6 +2,56 @@ import { Bookmark } from '@/store/bookmarksStore';
 
 const API_BASE = '/api';
 
+/**
+ * Retry utility with exponential backoff
+ * @param fn Function to retry
+ * @param retries Number of retry attempts (default: 3)
+ * @param delay Initial delay in ms (default: 1000)
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  retries: number = 3,
+  delay: number = 1000
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Don't retry if the request was aborted - just throw immediately
+      if (lastError.name === 'AbortError') {
+        console.log(`[Retry] Request was aborted, not retrying`);
+        throw lastError;
+      }
+
+      // Don't retry on the last attempt
+      if (attempt === retries) {
+        break;
+      }
+
+      // Calculate exponential backoff delay: 1s, 2s, 4s
+      const backoffDelay = delay * Math.pow(2, attempt);
+
+      console.log(
+        `[Retry] Attempt ${attempt + 1}/${retries + 1} failed. Retrying in ${backoffDelay}ms...`,
+        lastError.message
+      );
+
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, backoffDelay));
+    }
+  }
+
+  // All retries exhausted, throw enriched error with attempt count
+  const enrichedError = new Error(
+    `Failed after ${retries + 1} attempts: ${lastError?.message || 'Unknown error'}`
+  );
+  throw enrichedError;
+}
+
 export interface BookmarkFilters {
   searchQuery?: string;
   types?: string[];
@@ -155,26 +205,50 @@ export const bookmarksApi = {
 
   /**
    * Enrich a bookmark with AI-generated metadata
+   * Automatically retries up to 3 times with exponential backoff (1s, 2s, 4s)
    */
-  async enrich(id: string): Promise<Bookmark> {
-    const response = await fetch(`${API_BASE}/bookmarks/${id}/enrich`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
+  async enrich(id: string, signal?: AbortSignal): Promise<Bookmark> {
+    console.log(`[API] Starting enrichment for bookmark: ${id}`);
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to enrich bookmark');
-    }
+    return retryWithBackoff(async () => {
+      console.log(`[API] Sending enrichment request for: ${id}`);
 
-    const json = await response.json();
+      const response = await fetch(`${API_BASE}/bookmarks/${id}/enrich`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal, // Pass abort signal to fetch
+      });
 
-    return {
-      ...json.data,
-      createdAt: new Date(json.data.createdAt),
-      updatedAt: new Date(json.data.updatedAt),
-      processedAt: json.data.processedAt ? new Date(json.data.processedAt) : null,
-    };
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+
+        // Create detailed error message based on response status
+        let errorMessage = error.error || error.message || 'Failed to enrich bookmark';
+
+        if (response.status === 500) {
+          errorMessage = `Server error: ${errorMessage}`;
+        } else if (response.status === 404) {
+          errorMessage = 'Bookmark not found';
+        } else if (response.status === 400) {
+          errorMessage = `Invalid request: ${errorMessage}`;
+        } else if (response.status === 504 || response.status === 502) {
+          errorMessage = 'Request timeout - the AI service took too long to respond';
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      const json = await response.json();
+
+      console.log(`[API] Enrichment successful for bookmark: ${id}`);
+
+      return {
+        ...json.data,
+        createdAt: new Date(json.data.createdAt),
+        updatedAt: new Date(json.data.updatedAt),
+        processedAt: json.data.processedAt ? new Date(json.data.processedAt) : null,
+      };
+    }, 3, 1000); // 3 retries with 1s initial delay (total: 4 attempts with 1s, 2s, 4s backoff)
   },
 
   /**

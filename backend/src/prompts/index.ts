@@ -7,3 +7,4 @@
 
 export { analysisPrompt } from "./analysis";
 export { taggingPrompt } from "./tagging";
+export { judgePrompt } from "./judge";

@@ -1,6 +1,7 @@
 import { extractContent, validateUrl } from "../tools/contentExtractor";
 import { analyzeContent } from "../chains/analysisChain";
 import { suggestTags } from "../chains/taggingChain";
+import { evaluateSummaryQuality } from "../chains/judgeChain";
 import { getEmbedderAgent } from "./embedderAgent";
 import type {
   EnrichmentOptions,
@@ -114,54 +115,149 @@ export class EnrichmentAgent {
       );
     }
 
-    // Step 3: Analyze content (unless skipped)
+    // Step 3: Analyze content with user context (unless skipped)
     this.emitProgress("analysis", "Analyzing content with AI...");
     let analysis;
     try {
       if (options.skipAnalysis) {
         console.log("[EnrichmentAgent] Skipping analysis (option set)");
         analysis = {
-          summary: options.userNotes || "No summary available",
-          keyPoints: [],
+          title: options.userTitle || extractedContent.title,
+          summary: options.userSummary || options.userNotes || "No summary available",
+          tags: options.userTags || [],
         };
       } else {
-        analysis = await analyzeContent(extractedContent);
+        // Pass user context to enable merge & enhance strategy
+        const userContext = {
+          userTitle: options.userTitle,
+          userSummary: options.userSummary,
+          userTags: options.userTags,
+        };
+
+        analysis = await analyzeContent(extractedContent, userContext);
         console.log(
-          `[EnrichmentAgent] Generated summary: "${analysis.summary.substring(0, 100)}..."`
+          `[EnrichmentAgent] Generated comprehensive analysis:`,
+          `\n  - Title: "${analysis.title}"`,
+          `\n  - Summary: ${analysis.summary.length} chars`,
+          `\n  - Tags: ${analysis.tags.length} tags`
         );
       }
     } catch (error) {
       this.recordError("analysis", error, true);
-      // Graceful degradation: use fallback analysis
+      // Graceful degradation: use fallback analysis with user context if available
       analysis = {
-        summary: `Content from ${extractedContent.domain}: ${extractedContent.title}`,
-        keyPoints: ["AI analysis failed", "Manual review needed"],
+        title: options.userTitle || extractedContent.title || "Untitled",
+        summary: options.userSummary || `Content from ${extractedContent.domain}: ${extractedContent.title}. AI analysis failed - manual review needed.`,
+        tags: options.userTags || [extractedContent.contentType, "needs-review"],
       };
     }
 
-    // Step 4: Suggest tags (unless skipped)
-    this.emitProgress("tagging", "Suggesting tags...");
+    // Step 3.5: Smart Conditional Quality Evaluation (LLM-as-a-Judge)
+    // Only judge when quality risk is high to minimize cost
+    const shouldJudge =
+      extractedContent.extractionConfidence < 0.7 ||
+      extractedContent.cleanText.length > 10000 ||
+      extractedContent.contentType === "pdf" ||
+      extractedContent.contentType === "video";
+
+    if (shouldJudge && !options.skipAnalysis) {
+      this.emitProgress("analysis", "Evaluating summary quality...");
+
+      try {
+        const qualityCheck = await evaluateSummaryQuality(
+          analysis,
+          extractedContent
+        );
+
+        if (qualityCheck.overall_verdict === "fail") {
+          console.warn(
+            "[EnrichmentAgent] Quality check failed, retrying analysis..."
+          );
+          console.warn("[EnrichmentAgent] Issues found:", qualityCheck.issues);
+          console.warn(
+            "[EnrichmentAgent] Failed criteria:",
+            {
+              comprehensiveness: qualityCheck.comprehensiveness,
+              accuracy: qualityCheck.accuracy,
+              formatting: qualityCheck.formatting,
+              clarity: qualityCheck.clarity,
+            }
+          );
+
+          // Retry once with adjusted temperature for better quality
+          try {
+            analysis = await analyzeContent(extractedContent, userContext, {
+              temperature: 0.6, // Slightly lower for more focused output
+            });
+
+            console.log(
+              "[EnrichmentAgent] Analysis retry complete, accepting result"
+            );
+          } catch (retryError) {
+            console.error(
+              "[EnrichmentAgent] Analysis retry failed:",
+              retryError
+            );
+            // Keep the original analysis if retry fails
+          }
+        } else {
+          console.log(
+            `[EnrichmentAgent] Quality check passed: ${qualityCheck.reasoning}`
+          );
+        }
+      } catch (error) {
+        this.recordError("analysis", error, true);
+        console.warn(
+          "[EnrichmentAgent] Quality evaluation failed, continuing with current analysis"
+        );
+      }
+    } else {
+      const reason = options.skipAnalysis
+        ? "analysis skipped"
+        : extractedContent.extractionConfidence >= 0.7
+        ? `high extraction confidence (${extractedContent.extractionConfidence.toFixed(2)})`
+        : `short content (${extractedContent.cleanText.length} chars)`;
+
+      console.log(
+        `[EnrichmentAgent] Skipping quality evaluation: ${reason}`
+      );
+    }
+
+    // Step 4: Additional tag suggestions (optional, analysis already provides tags)
+    // NOTE: This step is now optional since analysis chain generates tags
+    // We keep it for backward compatibility and to merge with existing tags
+    this.emitProgress("tagging", "Refining tags...");
     let tagging;
     try {
       if (options.skipTagging) {
-        console.log("[EnrichmentAgent] Skipping tagging (option set)");
-        tagging = { tags: [] };
+        console.log("[EnrichmentAgent] Skipping additional tagging (option set)");
+        // Use tags from analysis only
+        tagging = { tags: analysis.tags || [] };
       } else {
-        tagging = await suggestTags(
+        // Get additional tag suggestions and merge with analysis tags
+        const additionalTags = await suggestTags(
           extractedContent,
           analysis,
           options.existingTags
         );
+
+        // Merge analysis tags with additional suggestions (deduplicate)
+        const allTags = [...new Set([...analysis.tags, ...additionalTags.tags])];
+
+        tagging = { tags: allTags.slice(0, 5) }; // Limit to 5 total tags
+
         console.log(
-          `[EnrichmentAgent] Suggested ${tagging.tags.length} tags:`,
+          `[EnrichmentAgent] Final tags (${tagging.tags.length}):`,
           tagging.tags
         );
       }
     } catch (error) {
       this.recordError("tagging", error, true);
-      // Graceful degradation: use basic tags
+      // Graceful degradation: use tags from analysis or basic tags
       tagging = {
-        tags: [extractedContent.contentType, extractedContent.domain],
+        tags: analysis.tags?.length > 0
+          ? analysis.tags
+          : [extractedContent.contentType, extractedContent.domain],
       };
     }
 
@@ -177,9 +273,9 @@ export class EnrichmentAgent {
         const embedder = getEmbedderAgent();
 
         // Create embedding from combined content:
-        // Title + Summary + Tags for best semantic search results
+        // Improved Title + Comprehensive Summary + Tags for best semantic search results
         const embeddingText = [
-          extractedContent.title,
+          analysis.title, // Use improved title from analysis
           analysis.summary,
           ...tagging.tags,
         ].join(" ");
@@ -209,7 +305,7 @@ export class EnrichmentAgent {
 
     const result: EnrichmentResult = {
       url: options.url,
-      title: extractedContent.title,
+      title: analysis.title, // Use improved title from analysis (not raw extracted title)
       domain: extractedContent.domain,
       contentType: extractedContent.contentType,
       extractedContent: {

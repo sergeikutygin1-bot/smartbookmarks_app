@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bookmarksApi, BookmarkFilters } from '@/lib/api';
 import { Bookmark } from '@/store/bookmarksStore';
+import { enrichmentQueue } from '@/lib/concurrency';
+import { useEnrichmentStore } from '@/store/enrichmentStore';
+import { enrichmentLogger } from '@/lib/enrichmentLogger';
 
 /**
  * Query key factory for bookmarks
@@ -145,10 +148,16 @@ export function useUpdateBookmark() {
  */
 export function useDeleteBookmark() {
   const queryClient = useQueryClient();
+  const { cancelEnrichment } = useEnrichmentStore();
 
   return useMutation({
     mutationFn: (id: string) => bookmarksApi.delete(id),
     onMutate: async (id) => {
+      console.log(`[useDeleteBookmark] Deleting bookmark: ${id}`);
+
+      // Cancel any ongoing enrichment for this bookmark
+      cancelEnrichment(id);
+
       // Cancel outgoing refetches
       await queryClient.cancelQueries({ queryKey: bookmarksKeys.lists() });
 
@@ -178,12 +187,50 @@ export function useDeleteBookmark() {
 
 /**
  * Enrich a bookmark with AI-generated metadata
+ * Uses concurrency limiting (max 5 parallel enrichments)
  */
 export function useEnrichBookmark() {
   const queryClient = useQueryClient();
+  const {
+    startEnrichment,
+    setProcessing,
+    setSuccess,
+    setError,
+    removeEnrichment,
+    updateQueueStats
+  } = useEnrichmentStore();
 
   return useMutation({
-    mutationFn: (id: string) => bookmarksApi.enrich(id),
+    mutationFn: async (id: string) => {
+      console.log(`[useEnrichBookmark] Starting enrichment mutation for: ${id}`);
+      enrichmentLogger.log(id, 'started', 'Enrichment mutation initiated');
+
+      // Mark as queued in store
+      startEnrichment(id);
+      enrichmentLogger.log(id, 'queued', 'Added to enrichment queue');
+
+      // Run through concurrency queue (max 5 parallel)
+      const result = await enrichmentQueue.run(id, async (signal) => {
+        // Mark as processing when it starts
+        console.log(`[useEnrichBookmark] Marking as processing: ${id}`);
+        setProcessing(id);
+        enrichmentLogger.log(id, 'processing', 'Enrichment started processing', {
+          queueStats: enrichmentQueue.getStatus(),
+        });
+
+        // Update queue stats
+        updateQueueStats(enrichmentQueue.getStatus());
+
+        // Perform the actual enrichment with abort signal
+        return bookmarksApi.enrich(id, signal);
+      });
+
+      // Update queue stats after completion
+      updateQueueStats(enrichmentQueue.getStatus());
+
+      console.log(`[useEnrichBookmark] Enrichment completed for: ${id}`);
+      return result;
+    },
     onMutate: async (id) => {
       // Cancel outgoing refetches
       await queryClient.cancelQueries({ queryKey: bookmarksKeys.lists() });
@@ -196,7 +243,34 @@ export function useEnrichBookmark() {
       return { previousBookmarks, previousBookmark };
     },
     onError: (err, id, context) => {
-      // Rollback on error
+      // Check if this was an abort (cancellation)
+      const isAborted = err instanceof Error && err.name === 'AbortError';
+
+      if (isAborted) {
+        console.log(`[useEnrichBookmark] Enrichment aborted for: ${id}`);
+        enrichmentLogger.logAbort(id, 'Request aborted (bookmark likely deleted)');
+
+        // Don't mark as error for aborted requests - they're intentionally cancelled
+        removeEnrichment(id);
+        // Update queue stats
+        updateQueueStats(enrichmentQueue.getStatus());
+        // Don't touch the cache - the delete mutation will handle it
+        return;
+      }
+
+      console.error(`[useEnrichBookmark] Enrichment failed for: ${id}`, err);
+
+      // Mark as error in store
+      const errorMessage = err instanceof Error ? err.message : 'Enrichment failed';
+      setError(id, errorMessage);
+      enrichmentLogger.log(id, 'failed', errorMessage, {
+        error: err instanceof Error ? err.stack : String(err),
+      });
+
+      // Update queue stats
+      updateQueueStats(enrichmentQueue.getStatus());
+
+      // Rollback cache on real errors
       if (context?.previousBookmarks) {
         queryClient.setQueryData(bookmarksKeys.lists(), context.previousBookmarks);
       }
@@ -205,9 +279,41 @@ export function useEnrichBookmark() {
       }
     },
     onSuccess: (data, id) => {
+      console.log(`[useEnrichBookmark] onSuccess called for: ${id}`);
+
+      // Check if bookmark still exists in cache (might have been deleted during enrichment)
+      const bookmarkStillExists = queryClient.getQueryData<Bookmark[]>(bookmarksKeys.lists())
+        ?.some(b => b.id === id);
+
+      if (!bookmarkStillExists) {
+        console.log(`[useEnrichBookmark] Bookmark ${id} was deleted during enrichment, skipping update`);
+        enrichmentLogger.log(id, 'cancelled', 'Bookmark deleted before enrichment completed', {
+          cancelledAfterCompletion: true,
+        });
+
+        // Remove from enrichment tracking
+        removeEnrichment(id);
+        updateQueueStats(enrichmentQueue.getStatus());
+        return;
+      }
+
+      console.log(`[useEnrichBookmark] Marking enrichment as successful: ${id}`);
+      // Mark as success in store
+      setSuccess(id);
+      enrichmentLogger.log(id, 'completed', 'Enrichment completed successfully', {
+        hasTitle: !!data.title,
+        hasSummary: !!data.summary,
+        tagCount: data.tags.length,
+      });
+
+      // Update queue stats
+      updateQueueStats(enrichmentQueue.getStatus());
+
       // Update cache with enriched data
       queryClient.setQueryData(bookmarksKeys.detail(id), data);
       queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
+
+      console.log(`[useEnrichBookmark] Cache updated for: ${id}`);
     },
   });
 }

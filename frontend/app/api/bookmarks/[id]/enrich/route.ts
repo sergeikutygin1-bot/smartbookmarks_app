@@ -41,12 +41,17 @@ export async function POST(
       );
 
       // Call enrichment agent via HTTP (running on port 3002)
+      // Pass user context for merge & enhance strategy
       const enrichResponse = await fetch('http://localhost:3002/enrich', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: bookmark.url,
           existingTags,
+          // User context - AI will merge/enhance these if present
+          userTitle: bookmark.title,
+          userSummary: bookmark.summary,
+          userTags: bookmark.tags,
         }),
       });
 
@@ -57,27 +62,18 @@ export async function POST(
 
       const enrichmentData = await enrichResponse.json();
 
-      // Format summary with key points as markdown
-      let formattedSummary = '';
-      if (enrichmentData.analysis?.summary) {
-        formattedSummary = enrichmentData.analysis.summary;
+      // Analysis now returns { title, summary, tags } (no keyPoints)
+      // Summary is already comprehensive (300-500 words)
+      const enhancedSummary = enrichmentData.analysis?.summary || bookmark.summary;
 
-        // Add key points as bullet list if they exist
-        if (enrichmentData.analysis?.keyPoints?.length > 0) {
-          formattedSummary += '\n\n**Key Points:**\n';
-          enrichmentData.analysis.keyPoints.forEach((point: string) => {
-            formattedSummary += `- ${point}\n`;
-          });
-        }
-      }
-
-      // Update bookmark with enriched data (including embeddings)
+      // Update bookmark with enriched data
+      // Uses improved title and comprehensive summary from AI analysis
       const updatedBookmark = {
         ...bookmark,
-        title: enrichmentData.title || bookmark.title,
+        title: enrichmentData.analysis?.title || enrichmentData.title || bookmark.title,
         domain: enrichmentData.domain || bookmark.domain,
         contentType: enrichmentData.contentType || bookmark.contentType,
-        summary: formattedSummary || bookmark.summary,
+        summary: enhancedSummary,
         tags: enrichmentData.tagging?.tags || bookmark.tags,
         embedding: enrichmentData.embedding || bookmark.embedding,
         embeddedAt: enrichmentData.embeddedAt
