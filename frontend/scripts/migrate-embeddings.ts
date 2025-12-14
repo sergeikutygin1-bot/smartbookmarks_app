@@ -144,13 +144,13 @@ async function migrateEmbeddings() {
     // Save progress every 5 bookmarks
     if (stats.processed % 5 === 0) {
       console.log('💾 Saving progress...\n');
-      saveBookmarksServer(bookmarks);
+      await saveBookmarksServer(bookmarks);
     }
   }
 
   // Final save
   console.log('💾 Saving final results...');
-  saveBookmarksServer(bookmarks);
+  await saveBookmarksServer(bookmarks);
 
   // Summary
   console.log('\n' + '='.repeat(60));

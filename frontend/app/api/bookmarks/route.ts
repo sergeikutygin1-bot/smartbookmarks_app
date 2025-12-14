@@ -132,8 +132,8 @@ export async function POST(request: NextRequest) {
     // Add new bookmark at the beginning
     const updatedBookmarks = [newBookmark, ...bookmarks];
 
-    // Save to server storage
-    saveBookmarksServer(updatedBookmarks);
+    // Save to server storage (async with write queue)
+    await saveBookmarksServer(updatedBookmarks);
 
     return NextResponse.json(
       { data: newBookmark },

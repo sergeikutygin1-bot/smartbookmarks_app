@@ -65,8 +65,8 @@ export async function PATCH(
     // Update in array
     bookmarks[bookmarkIndex] = updatedBookmark;
 
-    // Save to server storage
-    saveBookmarksServer(bookmarks);
+    // Save to server storage (async with write queue)
+    await saveBookmarksServer(bookmarks);
 
     return NextResponse.json({ data: updatedBookmark });
   } catch (error) {
@@ -101,8 +101,8 @@ export async function DELETE(
     // Remove bookmark
     const updatedBookmarks = bookmarks.filter((b) => b.id !== id);
 
-    // Save to server storage
-    saveBookmarksServer(updatedBookmarks);
+    // Save to server storage (async with write queue)
+    await saveBookmarksServer(updatedBookmarks);
 
     return NextResponse.json({ success: true });
   } catch (error) {

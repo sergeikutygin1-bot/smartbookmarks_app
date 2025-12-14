@@ -187,18 +187,29 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
 
       console.log(`[BookmarkNote] Enrichment completed for: ${bookmark.id}`);
 
-      // Update local state with enriched data
-      setTitle(enrichedBookmark.title);
-      setSummary(enrichedBookmark.summary || "");
-      setTags(enrichedBookmark.tags);
+      // CRITICAL: Only update local state if this enrichment is for the CURRENTLY displayed bookmark
+      // User might have switched to a different bookmark while enrichment was processing
+      if (enrichedBookmark.id === bookmark.id) {
+        // Update local state with enriched data
+        setTitle(enrichedBookmark.title);
+        setSummary(enrichedBookmark.summary || "");
+        setTags(enrichedBookmark.tags);
 
-      // Show success toast
-      toast.success("AI enrichment completed!", {
-        description: "Summary, tags, and metadata have been updated.",
-        classNames: {
-          description: "!text-foreground/90 !font-medium", // Higher contrast description
-        },
-      });
+        // Show success toast (only if still viewing this bookmark)
+        toast.success("AI enrichment completed!", {
+          description: "Summary, tags, and metadata have been updated.",
+          classNames: {
+            description: "!text-foreground/90 !font-medium", // Higher contrast description
+          },
+        });
+      } else {
+        console.log(`[BookmarkNote] Enrichment completed for ${enrichedBookmark.id}, but now viewing ${bookmark.id}. Skipping local state update.`);
+
+        // Show a different toast since user is viewing a different bookmark
+        toast.success("Enrichment completed in background", {
+          description: "A bookmark was enriched while you were viewing another one.",
+        });
+      }
     } catch (error) {
       // Check if this was an abort (user cancelled)
       const isAborted = error instanceof Error && error.name === 'AbortError';

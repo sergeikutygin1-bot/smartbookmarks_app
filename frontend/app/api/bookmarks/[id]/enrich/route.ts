@@ -68,28 +68,42 @@ export async function POST(
       // Summary is already comprehensive (300-500 words)
       const enhancedSummary = enrichmentData.analysis?.summary || bookmark.summary;
 
-      // Update bookmark with enriched data
+      // CRITICAL: Reload bookmarks to get FRESH state before saving
+      // This prevents race conditions where concurrent enrichments overwrite each other
+      // Each request now merges its enrichment into the CURRENT state, not stale t=0 state
+      const latestBookmarks = loadBookmarksServer();
+      const latestIndex = latestBookmarks.findIndex((b) => b.id === id);
+
+      if (latestIndex === -1) {
+        // Bookmark was deleted while processing - rare edge case
+        throw new Error('Bookmark was deleted during enrichment');
+      }
+
+      // Get the CURRENT state of this bookmark (may have been updated by user edits)
+      const currentBookmark = latestBookmarks[latestIndex];
+
+      // Update bookmark with enriched data, merging with current state
       // Uses improved title and comprehensive summary from AI analysis
       const updatedBookmark = {
-        ...bookmark,
-        title: enrichmentData.analysis?.title || enrichmentData.title || bookmark.title,
-        domain: enrichmentData.domain || bookmark.domain,
-        contentType: enrichmentData.contentType || bookmark.contentType,
+        ...currentBookmark, // Start with CURRENT state, not initial state
+        title: enrichmentData.analysis?.title || enrichmentData.title || currentBookmark.title,
+        domain: enrichmentData.domain || currentBookmark.domain,
+        contentType: enrichmentData.contentType || currentBookmark.contentType,
         summary: enhancedSummary,
-        tags: enrichmentData.tagging?.tags || bookmark.tags,
-        embedding: enrichmentData.embedding || bookmark.embedding,
+        tags: enrichmentData.tagging?.tags || currentBookmark.tags,
+        embedding: enrichmentData.embedding || currentBookmark.embedding,
         embeddedAt: enrichmentData.embeddedAt
           ? new Date(enrichmentData.embeddedAt)
-          : bookmark.embeddedAt,
+          : currentBookmark.embeddedAt,
         updatedAt: new Date(),
         processedAt: new Date(),
       };
 
-      // Update in array
-      bookmarks[bookmarkIndex] = updatedBookmark;
+      // Update in the FRESH array
+      latestBookmarks[latestIndex] = updatedBookmark;
 
-      // Save to server storage
-      saveBookmarksServer(bookmarks);
+      // Save to server storage (now async with write queue)
+      await saveBookmarksServer(latestBookmarks);
 
       return NextResponse.json({ data: updatedBookmark });
     } catch (enrichError) {

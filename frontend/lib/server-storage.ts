@@ -5,12 +5,42 @@ import path from 'path';
 const DATA_DIR = path.join(process.cwd(), '.data');
 const DATA_FILE = path.join(DATA_DIR, 'bookmarks.json');
 
+// Write queue for serializing concurrent saves
+let saveInProgress = false;
+const saveQueue: (() => Promise<void>)[] = [];
+
 /**
  * Ensure data directory exists
  */
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+}
+
+/**
+ * Process the write queue sequentially
+ */
+async function processQueue(): Promise<void> {
+  if (saveInProgress || saveQueue.length === 0) {
+    return;
+  }
+
+  saveInProgress = true;
+
+  try {
+    while (saveQueue.length > 0) {
+      const operation = saveQueue.shift();
+      if (operation) {
+        await operation();
+      }
+    }
+  } finally {
+    saveInProgress = false;
+    // Process any operations that were added while we were processing
+    if (saveQueue.length > 0) {
+      processQueue();
+    }
   }
 }
 
@@ -45,22 +75,43 @@ export function loadBookmarksServer(): Bookmark[] {
 
 /**
  * Save bookmarks to server-side JSON file
+ * Uses a write queue to serialize concurrent saves and prevent race conditions
  */
-export function saveBookmarksServer(bookmarks: Bookmark[]): void {
-  try {
-    ensureDataDir();
+export async function saveBookmarksServer(bookmarks: Bookmark[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const saveOperation = async () => {
+      try {
+        ensureDataDir();
 
-    const data = {
-      bookmarks,
-      version: 1,
-      lastUpdated: new Date().toISOString(),
+        const data = {
+          bookmarks,
+          version: 1,
+          lastUpdated: new Date().toISOString(),
+        };
+
+        // Atomic write pattern: write to temp file, then rename
+        // This prevents partial writes and ensures consistency
+        const tempFile = DATA_FILE + '.tmp';
+        fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
+
+        // fs.renameSync is atomic on most filesystems
+        fs.renameSync(tempFile, DATA_FILE);
+
+        resolve();
+      } catch (error) {
+        console.error('Failed to save bookmarks to server storage:', error);
+        reject(error);
+      }
     };
 
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (error) {
-    console.error('Failed to save bookmarks to server storage:', error);
-    throw error;
-  }
+    // Add to queue
+    saveQueue.push(saveOperation);
+
+    // Start processing if not already in progress
+    if (!saveInProgress) {
+      processQueue();
+    }
+  });
 }
 
 /**
