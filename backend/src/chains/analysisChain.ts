@@ -96,18 +96,18 @@ export async function analyzeContent(
       userTags: userContext.userTags?.join(", ") || "",
     };
 
-    console.log(`[Analysis] Analyzing content: "${content.title}"`);
-    if (userContext.userTitle || userContext.userSummary || userContext.userTags?.length) {
-      console.log(`[Analysis] User context provided - will merge & enhance`);
-    }
+    // console.log(`[Analysis] Analyzing content: "${content.title}"`);
+    // if (userContext.userTitle || userContext.userSummary || userContext.userTags?.length) {
+    //   console.log(`[Analysis] User context provided - will merge & enhance`);
+    // }
     const startTime = Date.now();
 
     // Run the chain
     const result = await chain.invoke(input);
 
     const duration = Date.now() - startTime;
-    console.log(`[Analysis] Completed in ${duration}ms`);
-    console.log(`[Analysis] Generated ${result.summary?.length || 0} char summary, ${result.tags?.length || 0} tags`);
+    // console.log(`[Analysis] Completed in ${duration}ms`);
+    // console.log(`[Analysis] Generated ${result.summary?.length || 0} char summary, ${result.tags?.length || 0} tags`);
 
     // Validate the result
     const validated = AnalysisResultSchema.parse(result);

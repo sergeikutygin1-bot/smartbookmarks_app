@@ -87,17 +87,59 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     // Don't validate immediately - wait for debounce or user action
   };
 
-  // Sync local state when bookmark changes (user selects different bookmark or data updates)
+  // Sync local state when:
+  // 1. Bookmark ID changes (user selects different bookmark)
+  // 2. Enrichment completes for THIS bookmark
+  // Store previous ID to detect changes
+  const prevIdRef = useRef<string>();
+  const prevEnrichmentStatusRef = useRef<string>();
+
   useEffect(() => {
-    setTitle(bookmark.title);
-    setUrl(bookmark.url);
-    setSummary(bookmark.summary || "");
-    setTags(bookmark.tags);
-    setIsAddingTag(false);
-    setNewTagValue("");
-    setIsUrlValid(true); // Reset validation state when switching bookmarks
-    lastInvalidUrlRef.current = ""; // Reset error tracking when switching bookmarks
-  }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags]);
+    const idChanged = prevIdRef.current !== bookmark.id;
+    const enrichmentCompleted =
+      prevEnrichmentStatusRef.current === 'processing' &&
+      enrichmentStatus === 'success';
+
+    // DEFENSIVE CHECK: Verify we're syncing the correct bookmark
+    // This prevents race conditions where enrichment data from one bookmark
+    // incorrectly appears in another bookmark's form
+    const shouldSync = idChanged || enrichmentCompleted;
+
+    if (shouldSync) {
+      // Double-check: if enrichment completed, it must be for THIS bookmark
+      if (enrichmentCompleted && prevIdRef.current && prevIdRef.current !== bookmark.id) {
+        console.warn(
+          `[BookmarkNote] RACE CONDITION PREVENTED: ` +
+          `Enrichment completed for bookmark ${prevIdRef.current}, ` +
+          `but now viewing bookmark ${bookmark.id}. Skipping sync.`
+        );
+        prevIdRef.current = bookmark.id;
+        prevEnrichmentStatusRef.current = enrichmentStatus;
+        return;
+      }
+
+      console.log(
+        `[BookmarkNote] ✓ Syncing to bookmark: ${bookmark.id} ` +
+        `(ID changed: ${idChanged}, enrichment completed: ${enrichmentCompleted})`
+      );
+      setTitle(bookmark.title);
+      setUrl(bookmark.url);
+      setSummary(bookmark.summary || "");
+      setTags(bookmark.tags);
+      setIsAddingTag(false);
+      setNewTagValue("");
+      setIsUrlValid(true);
+      lastInvalidUrlRef.current = "";
+    } else {
+      console.log(
+        `[BookmarkNote] ⊘ Skipping sync for ${bookmark.id} ` +
+        `(ID changed: ${idChanged}, enrichment completed: ${enrichmentCompleted})`
+      );
+    }
+
+    prevIdRef.current = bookmark.id;
+    prevEnrichmentStatusRef.current = enrichmentStatus;
+  }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags, enrichmentStatus]);
 
   // Focus tag input when adding tag
   useEffect(() => {

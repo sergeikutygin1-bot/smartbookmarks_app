@@ -33,5 +33,7 @@ export function NoteEditor() {
     );
   }
 
-  return <BookmarkNote bookmark={selectedBookmark} />;
+  // CRITICAL FIX: Force component remount when bookmark ID changes
+  // This prevents stale state from persisting across bookmark selections
+  return <BookmarkNote key={selectedBookmark.id} bookmark={selectedBookmark} />;
 }

@@ -84,28 +84,28 @@ export async function evaluateSummaryQuality(
       expectedLength: "300-500 words",
     };
 
-    console.log(`[Judge] Evaluating summary quality for: "${analysis.title}"`);
+    // console.log(`[Judge] Evaluating summary quality for: "${analysis.title}"`);
     const startTime = Date.now();
 
     // Run the chain
     const result = await chain.invoke(input);
 
     const duration = Date.now() - startTime;
-    console.log(`[Judge] Evaluation completed in ${duration}ms`);
-    console.log(`[Judge] Verdict: ${result.overall_verdict}`);
+    // console.log(`[Judge] Evaluation completed in ${duration}ms`);
+    // console.log(`[Judge] Verdict: ${result.overall_verdict}`);
 
-    if (result.overall_verdict === "fail") {
-      console.warn(
-        `[Judge] Quality issues found:`,
-        result.issues
-      );
-      console.warn(`[Judge] Failed criteria:`, {
-        comprehensiveness: result.comprehensiveness,
-        accuracy: result.accuracy,
-        formatting: result.formatting,
-        clarity: result.clarity,
-      });
-    }
+    // if (result.overall_verdict === "fail") {
+    //   console.warn(
+    //     `[Judge] Quality issues found:`,
+    //     result.issues
+    //   );
+    //   console.warn(`[Judge] Failed criteria:`, {
+    //     comprehensiveness: result.comprehensiveness,
+    //     accuracy: result.accuracy,
+    //     formatting: result.formatting,
+    //     clarity: result.clarity,
+    //   });
+    // }
 
     // Validate the result
     const validated = JudgeResultSchema.parse(result);

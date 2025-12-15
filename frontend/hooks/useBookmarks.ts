@@ -322,7 +322,21 @@ export function useEnrichBookmark() {
 
       // Update cache with enriched data
       queryClient.setQueryData(bookmarksKeys.detail(id), data);
-      queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
+
+      // CRITICAL FIX: Instead of invalidating (which causes refetch and race conditions),
+      // surgically update the specific bookmark in the list cache
+      const currentBookmarks = queryClient.getQueryData<Bookmark[]>(bookmarksKeys.lists());
+      if (currentBookmarks) {
+        const updatedBookmarks = currentBookmarks.map(bookmark =>
+          bookmark.id === id ? data : bookmark
+        );
+        queryClient.setQueryData(bookmarksKeys.lists(), updatedBookmarks);
+        console.log(`[useEnrichBookmark] Updated bookmark ${id} in list cache without invalidation (prevents race condition)`);
+      } else {
+        // Fallback: if cache is empty, invalidate to refetch
+        console.log(`[useEnrichBookmark] Cache empty, invalidating to refetch`);
+        queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
+      }
 
       console.log(`[useEnrichBookmark] Cache updated for: ${id}`);
     },

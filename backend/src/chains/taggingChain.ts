@@ -92,16 +92,16 @@ export async function suggestTags(
           : "No existing tags yet",
     };
 
-    console.log(`[Tagging] Suggesting tags for: "${content.title}"`);
+    // console.log(`[Tagging] Suggesting tags for: "${content.title}"`);
     const startTime = Date.now();
 
     // Run the chain
     const result = await chain.invoke(input);
 
     const duration = Date.now() - startTime;
-    console.log(
-      `[Tagging] Completed in ${duration}ms - ${result.tags.length} tags suggested`
-    );
+    // console.log(
+    //   `[Tagging] Completed in ${duration}ms - ${result.tags.length} tags suggested`
+    // );
 
     // Validate and normalize tags
     const validated = TaggingResultSchema.parse(result);

@@ -1,0 +1,14 @@
+{
+  "jobId": "enrich-de52d1c1f855e5d5",
+  "url": "https://www.anthropic.com/research/claude-opus",
+  "status": "failed",
+  "queuedAt": "2025-12-14T13:45:49.213Z",
+  "startedAt": "2025-12-14T13:45:58.757Z",
+  "agentTraces": [],
+  "userContext": {},
+  "completedAt": "2025-12-14T13:45:59.810Z",
+  "error": {
+    "message": "The URL could not be accessed. Please check that the link is correct and the website is available.",
+    "stack": "Error: The URL could not be accessed. Please check that the link is correct and the website is available.\n    at EnrichmentAgent.enrich (/Users/sergeykutygin/Desktop/vibecoding/smart_bookmarks_v2/backend/src/agents/enrichmentAgent.ts:94:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async Worker.processEnrichmentJob (/Users/sergeykutygin/Desktop/vibecoding/smart_bookmarks_v2/backend/src/workers/enrichmentWorker.ts:83:20)\n    at async <anonymous> (/Users/sergeykutygin/Desktop/vibecoding/smart_bookmarks_v2/backend/node_modules/bullmq/src/classes/worker.ts:990:26)"
+  }
+}

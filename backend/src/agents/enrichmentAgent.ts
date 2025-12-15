@@ -85,7 +85,7 @@ export class EnrichmentAgent {
     const startTime = Date.now();
     this.errors = []; // Reset errors for new enrichment
 
-    console.log(`\n[EnrichmentAgent] Starting enrichment for: ${options.url}`);
+    // console.log(`\n[EnrichmentAgent] Starting enrichment for: ${options.url}`);
 
     // Step 1: Validate URL
     this.emitProgress("extraction", "Validating URL...");
@@ -99,9 +99,7 @@ export class EnrichmentAgent {
     let extractedContent;
     try {
       extractedContent = await extractContent(options.url);
-      console.log(
-        `[EnrichmentAgent] Extracted ${extractedContent.cleanText.length} characters`
-      );
+      // console.log(`[EnrichmentAgent] Extracted ${extractedContent.cleanText.length} characters`);
     } catch (error) {
       this.recordError("extraction", error, false);
       throw new Error(`Failed to extract content: ${error}`);
@@ -135,12 +133,7 @@ export class EnrichmentAgent {
         };
 
         analysis = await analyzeContent(extractedContent, userContext);
-        console.log(
-          `[EnrichmentAgent] Generated comprehensive analysis:`,
-          `\n  - Title: "${analysis.title}"`,
-          `\n  - Summary: ${analysis.summary.length} chars`,
-          `\n  - Tags: ${analysis.tags.length} tags`
-        );
+        // console.log(`[EnrichmentAgent] Generated comprehensive analysis: ${analysis.title}`);
       }
     } catch (error) {
       this.recordError("analysis", error, true);
@@ -170,19 +163,8 @@ export class EnrichmentAgent {
         );
 
         if (qualityCheck.overall_verdict === "fail") {
-          console.warn(
-            "[EnrichmentAgent] Quality check failed, retrying analysis..."
-          );
-          console.warn("[EnrichmentAgent] Issues found:", qualityCheck.issues);
-          console.warn(
-            "[EnrichmentAgent] Failed criteria:",
-            {
-              comprehensiveness: qualityCheck.comprehensiveness,
-              accuracy: qualityCheck.accuracy,
-              formatting: qualityCheck.formatting,
-              clarity: qualityCheck.clarity,
-            }
-          );
+          // console.warn("[EnrichmentAgent] Quality check failed, retrying analysis...");
+          // console.warn("[EnrichmentAgent] Issues found:", qualityCheck.issues);
 
           // Retry once with adjusted temperature for better quality
           try {
@@ -201,15 +183,15 @@ export class EnrichmentAgent {
             // Keep the original analysis if retry fails
           }
         } else {
-          console.log(
-            `[EnrichmentAgent] Quality check passed: ${qualityCheck.reasoning}`
-          );
+          // console.log(
+          //   `[EnrichmentAgent] Quality check passed: ${qualityCheck.reasoning}`
+          // );
         }
       } catch (error) {
         this.recordError("analysis", error, true);
-        console.warn(
-          "[EnrichmentAgent] Quality evaluation failed, continuing with current analysis"
-        );
+        // console.warn(
+        //   "[EnrichmentAgent] Quality evaluation failed, continuing with current analysis"
+        // );
       }
     } else {
       const reason = options.skipAnalysis
@@ -218,9 +200,9 @@ export class EnrichmentAgent {
         ? `high extraction confidence (${extractedContent.extractionConfidence.toFixed(2)})`
         : `short content (${extractedContent.cleanText.length} chars)`;
 
-      console.log(
-        `[EnrichmentAgent] Skipping quality evaluation: ${reason}`
-      );
+      // console.log(
+      //   `[EnrichmentAgent] Skipping quality evaluation: ${reason}`
+      // );
     }
 
     // Step 4: Additional tag suggestions (optional, analysis already provides tags)
@@ -246,10 +228,7 @@ export class EnrichmentAgent {
 
         tagging = { tags: allTags.slice(0, 5) }; // Limit to 5 total tags
 
-        console.log(
-          `[EnrichmentAgent] Final tags (${tagging.tags.length}):`,
-          tagging.tags
-        );
+        // console.log(`[EnrichmentAgent] Final tags (${tagging.tags.length}): ${tagging.tags.join(', ')}`);
       }
     } catch (error) {
       this.recordError("tagging", error, true);
@@ -287,9 +266,7 @@ export class EnrichmentAgent {
 
         embeddedAt = new Date();
 
-        console.log(
-          `[EnrichmentAgent] Generated embedding with ${embedding.length} dimensions`
-        );
+        // console.log(`[EnrichmentAgent] Generated embedding with ${embedding.length} dimensions`);
       }
     } catch (error) {
       this.recordError("embedding", error, true);
@@ -323,9 +300,7 @@ export class EnrichmentAgent {
       processingTimeMs: processingTime,
     };
 
-    console.log(
-      `[EnrichmentAgent] Completed in ${processingTime}ms${this.errors.length > 0 ? ` with ${this.errors.length} error(s)` : ""}`
-    );
+    // console.log(`[EnrichmentAgent] Completed in ${processingTime}ms${this.errors.length > 0 ? ` with ${this.errors.length} error(s)` : ""}`);
 
     return result;
   }
@@ -362,9 +337,9 @@ export async function enrichUrl(
   const agent = new EnrichmentAgent();
 
   // Optional: Log progress
-  agent.onProgress((progress) => {
-    console.log(`[Progress] ${progress.step}: ${progress.message}`);
-  });
+  // agent.onProgress((progress) => {
+  //   console.log(`[Progress] ${progress.step}: ${progress.message}`);
+  // });
 
   return agent.enrich({
     url,

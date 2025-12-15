@@ -1,6 +1,8 @@
 import { Router, Request, Response } from "express";
 import { logger } from "../services/logger";
 import { enrichmentTracker } from "../services/enrichmentTracker";
+import { getEmbedderAgent } from "../agents/embedderAgent";
+import { getJobStorage } from "../services/jobStorage";
 import path from "path";
 import fs from "fs";
 
@@ -75,11 +77,38 @@ router.get("/logs/stream", (req: Request, res: Response) => {
   });
 });
 
-// Get enrichment history
-router.get("/enrichments", (req: Request, res: Response) => {
+// Get enrichment history (now using jobStorage)
+router.get("/enrichments", async (req: Request, res: Response) => {
   const limit = parseInt(req.query.limit as string) || 20;
-  const history = enrichmentTracker.getHistory(limit);
-  const active = enrichmentTracker.getActiveEnrichments();
+  const jobStorage = getJobStorage();
+
+  // Get all jobs for history
+  const allJobs = await jobStorage.listJobs({ limit });
+
+  // Get active jobs (processing status)
+  const activeJobs = await jobStorage.listJobs({ status: 'processing', limit: 10 });
+
+  // Convert to enrichmentTracker format for backward compatibility
+  const history = allJobs.map(job => ({
+    id: job.jobId,
+    url: job.url,
+    status: job.status,
+    startedAt: job.startedAt || job.queuedAt,
+    duration: job.totalDuration,
+    error: job.error?.message,
+    steps: {
+      extraction: { success: job.status !== 'failed' || !job.error?.message.includes('extract') },
+      analysis: { success: job.status === 'completed' },
+      tagging: { success: job.status === 'completed' },
+      embedding: { success: job.status === 'completed' },
+    }
+  }));
+
+  const active = activeJobs.map(job => ({
+    id: job.jobId,
+    url: job.url,
+    startedAt: job.startedAt || job.queuedAt,
+  }));
 
   res.json({
     active,
@@ -87,25 +116,62 @@ router.get("/enrichments", (req: Request, res: Response) => {
   });
 });
 
-// Get specific enrichment
-router.get("/enrichments/:id", (req: Request, res: Response) => {
-  const enrichment = enrichmentTracker.getEnrichment(req.params.id);
+// Get specific enrichment (now using jobStorage)
+router.get("/enrichments/:id", async (req: Request, res: Response) => {
+  const jobStorage = getJobStorage();
+  const job = await jobStorage.getJob(req.params.id);
 
-  if (!enrichment) {
+  if (!job) {
     return res.status(404).json({ error: "Enrichment not found" });
   }
+
+  // Convert to enrichmentTracker format for backward compatibility
+  const enrichment = {
+    id: job.jobId,
+    url: job.url,
+    status: job.status,
+    startedAt: job.startedAt || job.queuedAt,
+    completedAt: job.completedAt,
+    duration: job.totalDuration,
+    error: job.error?.message,
+    result: job.result,
+    agentTraces: job.agentTraces,
+  };
 
   res.json({ enrichment });
 });
 
 // Get statistics
-router.get("/stats", (req: Request, res: Response) => {
+router.get("/stats", async (req: Request, res: Response) => {
   const logStats = logger.getStats();
-  const enrichmentStats = enrichmentTracker.getStats();
+  const jobStorage = getJobStorage();
+  const jobStats = await jobStorage.getStats();
+
+  // Get cache statistics from embedder agent
+  const embedderAgent = getEmbedderAgent();
+  const cacheStats = await embedderAgent.getCacheStats();
+
+  // Convert job stats to enrichment stats format for backward compatibility
+  const enrichmentStats = {
+    total: jobStats.total,
+    completed: jobStats.byStatus.completed || 0,
+    failed: jobStats.byStatus.failed || 0,
+    active: jobStats.byStatus.processing || 0,
+    successRate: jobStats.total > 0
+      ? Math.round(((jobStats.byStatus.completed || 0) / jobStats.total) * 100)
+      : 0,
+    avgDuration: jobStats.avgDuration,
+    lastHour: {
+      total: jobStats.last24Hours,
+      completed: jobStats.byStatus.completed || 0,
+    },
+  };
 
   res.json({
     logs: logStats,
     enrichments: enrichmentStats,
+    jobs: jobStats,
+    cache: cacheStats,
     uptime: process.uptime(),
     memory: process.memoryUsage(),
   });
@@ -121,6 +187,58 @@ router.post("/logs/clear", (req: Request, res: Response) => {
 router.post("/enrichments/clear", (req: Request, res: Response) => {
   enrichmentTracker.clearHistory();
   res.json({ message: "Enrichment history cleared" });
+});
+
+// Get cache statistics
+router.get("/cache/stats", async (req: Request, res: Response) => {
+  const embedderAgent = getEmbedderAgent();
+  const cacheStats = await embedderAgent.getCacheStats();
+
+  res.json({
+    cache: cacheStats,
+  });
+});
+
+// Clear cache (admin action)
+router.post("/cache/clear", async (req: Request, res: Response) => {
+  const embedderAgent = getEmbedderAgent();
+  await embedderAgent.clearCache();
+  res.json({ message: "Cache cleared successfully" });
+});
+
+// Get all jobs with filters
+router.get("/jobs", async (req: Request, res: Response) => {
+  const jobStorage = getJobStorage();
+  const status = req.query.status as string | undefined;
+  const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+  const offset = req.query.offset ? parseInt(req.query.offset as string) : undefined;
+
+  const jobs = await jobStorage.listJobs({ status, limit, offset });
+
+  res.json({
+    jobs,
+    total: jobs.length,
+  });
+});
+
+// Get job statistics (MUST be before /:jobId route)
+router.get("/jobs/stats", async (req: Request, res: Response) => {
+  const jobStorage = getJobStorage();
+  const stats = await jobStorage.getStats();
+
+  res.json({ stats });
+});
+
+// Get specific job execution trace
+router.get("/jobs/:jobId", async (req: Request, res: Response) => {
+  const jobStorage = getJobStorage();
+  const job = await jobStorage.getJob(req.params.jobId);
+
+  if (!job) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+
+  res.json({ job });
 });
 
 /**
@@ -284,6 +402,23 @@ function getInlineAdminHTML(): string {
       </thead>
       <tbody id="enrichments"></tbody>
     </table>
+
+    <h2>🔍 Job Execution Details</h2>
+    <p style="color: #888; font-size: 14px; margin-bottom: 15px;">Click on a job to view detailed execution trace</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Job ID</th>
+          <th>URL</th>
+          <th>Status</th>
+          <th>Queued</th>
+          <th>Duration</th>
+          <th>Quality</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="jobs"></tbody>
+    </table>
   </div>
 
   <script>
@@ -321,19 +456,22 @@ function getInlineAdminHTML(): string {
       logsContainer.scrollTop = logsContainer.scrollHeight;
     }
 
-    // Fetch stats and enrichments
+    // Fetch stats, enrichments, and jobs
     async function fetchData() {
       try {
-        const [statsRes, enrichRes] = await Promise.all([
+        const [statsRes, enrichRes, jobsRes] = await Promise.all([
           fetch('/admin/stats'),
-          fetch('/admin/enrichments')
+          fetch('/admin/enrichments'),
+          fetch('/admin/jobs?limit=20')
         ]);
 
         const stats = await statsRes.json();
         const enrichments = await enrichRes.json();
+        const jobs = await jobsRes.json();
 
         updateStats(stats);
         updateEnrichments(enrichments);
+        updateJobs(jobs.jobs);
       } catch (error) {
         console.error('Failed to fetch data:', error);
       }
@@ -424,6 +562,84 @@ function getInlineAdminHTML(): string {
           </tr>
         \`;
       }).join('');
+    }
+
+    function updateJobs(jobs) {
+      const tbody = document.getElementById('jobs');
+      if (!jobs || jobs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #888;">No jobs yet</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = jobs.map(job => {
+        const time = new Date(job.queuedAt).toLocaleString();
+        const url = job.url.length > 40 ? job.url.substring(0, 40) + '...' : job.url;
+        const jobId = job.jobId.replace('enrich-', '');
+        const duration = job.totalDuration ? \`\${(job.totalDuration / 1000).toFixed(2)}s\` : '-';
+
+        // Quality metrics
+        let quality = '-';
+        if (job.quality) {
+          const metrics = [];
+          if (job.quality.contentLength) metrics.push(\`\${Math.round(job.quality.contentLength / 1000)}K content\`);
+          if (job.quality.tagCount) metrics.push(\`\${job.quality.tagCount} tags\`);
+          quality = metrics.join(', ') || '-';
+        }
+
+        const viewBtn = \`<button onclick="viewJob('\${job.jobId}')" style="padding: 4px 8px; font-size: 11px;">View Details</button>\`;
+
+        return \`
+          <tr>
+            <td style="font-family: monospace; font-size: 11px;">\${jobId}</td>
+            <td style="font-family: monospace; font-size: 11px;" title="\${job.url}">\${url}</td>
+            <td><span class="status \${job.status}">\${job.status}</span></td>
+            <td style="font-size: 11px;">\${time}</td>
+            <td>\${duration}</td>
+            <td style="font-size: 11px;">\${quality}</td>
+            <td>\${viewBtn}</td>
+          </tr>
+        \`;
+      }).join('');
+    }
+
+    async function viewJob(jobId) {
+      try {
+        const res = await fetch(\`/admin/jobs/\${jobId}\`);
+        const data = await res.json();
+        const job = data.job;
+
+        let details = \`Job: \${jobId}\\n\`;
+        details += \`URL: \${job.url}\\n\`;
+        details += \`Status: \${job.status}\\n\`;
+        details += \`Queued: \${new Date(job.queuedAt).toLocaleString()}\\n\`;
+        if (job.startedAt) details += \`Started: \${new Date(job.startedAt).toLocaleString()}\\n\`;
+        if (job.completedAt) details += \`Completed: \${new Date(job.completedAt).toLocaleString()}\\n\`;
+        if (job.totalDuration) details += \`Duration: \${(job.totalDuration / 1000).toFixed(2)}s\\n\`;
+
+        if (job.error) {
+          details += \`\\nError: \${job.error.message}\\n\`;
+        }
+
+        if (job.result) {
+          details += \`\\nResult:\\n\`;
+          details += \`  Title: \${job.result.title || 'N/A'}\\n\`;
+          details += \`  Tags: \${job.result.tags?.join(', ') || 'N/A'}\\n\`;
+          if (job.result.summary) {
+            details += \`  Summary: \${job.result.summary.substring(0, 200)}...\\n\`;
+          }
+        }
+
+        if (job.quality) {
+          details += \`\\nQuality Metrics:\\n\`;
+          if (job.quality.contentLength) details += \`  Content: \${Math.round(job.quality.contentLength / 1000)}K chars\\n\`;
+          if (job.quality.summaryLength) details += \`  Summary: \${job.quality.summaryLength} chars\\n\`;
+          if (job.quality.tagCount) details += \`  Tags: \${job.quality.tagCount}\\n\`;
+        }
+
+        alert(details);
+      } catch (error) {
+        alert('Failed to load job details: ' + error.message);
+      }
     }
 
     async function clearLogs() {

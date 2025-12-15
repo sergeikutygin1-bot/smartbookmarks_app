@@ -210,46 +210,99 @@ export const bookmarksApi = {
   },
 
   /**
+   * Poll job status until completion
+   * CLIENT-SIDE polling - runs in the browser, not on the server
+   */
+  async pollJobStatus(jobId: string, signal?: AbortSignal, maxAttempts: number = 60): Promise<any> {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // Check if aborted
+      if (signal?.aborted) {
+        throw new Error('Enrichment cancelled');
+      }
+
+      const response = await fetch(`${API_BASE}/enrich/${jobId}`, { signal });
+
+      if (!response.ok) {
+        throw new Error('Failed to get job status');
+      }
+
+      const statusData = await response.json();
+      console.log(`[API] Poll ${attempt + 1}/${maxAttempts}: status=${statusData.status}`);
+
+      if (statusData.status === 'completed' && statusData.result) {
+        console.log(`[API] Job ${jobId} completed after ${attempt + 1} polls`);
+        return statusData.result;
+      }
+
+      if (statusData.status === 'failed') {
+        const errorMessage = statusData.error || 'Enrichment job failed';
+
+        // Check if URL validation error (don't retry these)
+        const isUrlError = errorMessage.includes('URL could not be accessed') ||
+                          errorMessage.includes('not accessible') ||
+                          errorMessage.includes('Could not connect');
+
+        if (isUrlError) {
+          const error = new Error(errorMessage);
+          error.name = 'URLValidationError';
+          throw error;
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      // Wait 2 seconds before next poll
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    throw new Error('Enrichment timed out after 2 minutes');
+  },
+
+  /**
    * Enrich a bookmark with AI-generated metadata
+   * Uses CLIENT-SIDE polling for job status (browser polls, not server)
    * Automatically retries up to 3 times with exponential backoff (1s, 2s, 4s)
    */
   async enrich(id: string, signal?: AbortSignal): Promise<Bookmark> {
     console.log(`[API] Starting enrichment for bookmark: ${id}`);
 
     return retryWithBackoff(async () => {
-      console.log(`[API] Sending enrichment request for: ${id}`);
+      // Step 1: Queue the enrichment job (returns immediately)
+      console.log(`[API] Queueing enrichment job for: ${id}`);
 
-      const response = await fetch(`${API_BASE}/bookmarks/${id}/enrich`, {
+      const queueResponse = await fetch(`${API_BASE}/bookmarks/${id}/enrich`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal, // Pass abort signal to fetch
+        signal,
       });
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-
-        // Get the error message from backend
-        let errorMessage = error.error || error.message || 'Failed to enrich bookmark';
-
-        // Check if this is a URL validation error (shouldn't be retried)
-        const isUrlValidationError = errorMessage.includes('URL could not be accessed') ||
-                                      errorMessage.includes('not accessible') ||
-                                      errorMessage.includes('Could not connect');
-
-        // For URL validation errors, create a special error that won't be retried
-        if (isUrlValidationError) {
-          const urlError = new Error(errorMessage);
-          urlError.name = 'URLValidationError'; // Special name to skip retries
-          throw urlError;
-        }
-
-        // For other errors, use the message as-is (backend already provides user-friendly messages)
-        throw new Error(errorMessage);
+      if (!queueResponse.ok) {
+        const error = await queueResponse.json().catch(() => ({}));
+        throw new Error(error.error || 'Failed to queue enrichment');
       }
 
-      const json = await response.json();
+      const { jobId } = await queueResponse.json();
+      console.log(`[API] Job queued: ${jobId} for bookmark: ${id}`);
 
-      console.log(`[API] Enrichment successful for bookmark: ${id}`);
+      // Step 2: Poll for job completion (CLIENT-SIDE polling in browser)
+      const result = await this.pollJobStatus(jobId, signal);
+
+      // Step 3: Save enrichment results to bookmark
+      console.log(`[API] Saving enrichment results for: ${id}`);
+
+      const saveResponse = await fetch(`${API_BASE}/bookmarks/${id}/enrich`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result),
+        signal,
+      });
+
+      if (!saveResponse.ok) {
+        throw new Error('Failed to save enrichment results');
+      }
+
+      const json = await saveResponse.json();
+      console.log(`[API] Enrichment completed successfully for: ${id}`);
 
       return {
         ...json.data,
