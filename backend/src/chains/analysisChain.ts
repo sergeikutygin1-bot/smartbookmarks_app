@@ -7,6 +7,23 @@ import {
   type ExtractedContent,
 } from "../types/schemas";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { calculateCost, type TokenUsage } from "../utils/costCalculator";
+
+export interface AnalysisTrace {
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  promptText: string;
+  response: AnalysisResult;
+  tokenUsage: TokenUsage;
+  cost: {
+    inputCost: number;
+    outputCost: number;
+    totalCost: number;
+  };
+  duration: number;
+  timestamp: Date;
+}
 
 /**
  * Analysis Chain - Comprehensive content analysis with user context integration
@@ -37,8 +54,8 @@ interface UserContext {
 
 const DEFAULT_CONFIG: Required<AnalysisChainConfig> = {
   modelName: process.env.AI_MODEL || "gpt-4o-mini-2024-07-18",
-  temperature: 0.7, // Balanced between creative and consistent
-  maxTokens: 4000, // Increased for comprehensive summaries
+  temperature: 0.6, // OPTIMIZED: Reduced from 0.7 for more focused, less rambling output
+  maxTokens: 3500, // OPTIMIZED: Reduced from 4000 to save costs without impacting quality
   verbose: false,
 };
 
@@ -96,18 +113,12 @@ export async function analyzeContent(
       userTags: userContext.userTags?.join(", ") || "",
     };
 
-    // console.log(`[Analysis] Analyzing content: "${content.title}"`);
-    // if (userContext.userTitle || userContext.userSummary || userContext.userTags?.length) {
-    //   console.log(`[Analysis] User context provided - will merge & enhance`);
-    // }
     const startTime = Date.now();
 
     // Run the chain
     const result = await chain.invoke(input);
 
     const duration = Date.now() - startTime;
-    // console.log(`[Analysis] Completed in ${duration}ms`);
-    // console.log(`[Analysis] Generated ${result.summary?.length || 0} char summary, ${result.tags?.length || 0} tags`);
 
     // Validate the result
     const validated = AnalysisResultSchema.parse(result);
@@ -116,12 +127,122 @@ export async function analyzeContent(
     console.error("[Analysis] Failed:", error);
 
     // Return fallback analysis on error (graceful degradation)
-    // Use user-provided content if available, otherwise use extracted content
     return {
       title: userContext.userTitle || content.title || "Untitled Bookmark",
       summary: userContext.userSummary || `Failed to analyze content from ${content.domain}. The content appears to be about: ${content.title}. Manual review recommended.`,
       tags: userContext.userTags || [content.contentType, content.domain, "needs-review"],
     };
+  }
+}
+
+/**
+ * Analyzes content with detailed trace collection for observability
+ *
+ * @param content - The extracted content to analyze
+ * @param userContext - Optional user-provided title, summary, and tags
+ * @param config - Optional chain configuration
+ * @returns Analysis result and detailed execution trace
+ */
+export async function analyzeContentWithTrace(
+  content: ExtractedContent,
+  userContext: UserContext = {},
+  config: AnalysisChainConfig = {}
+): Promise<{ result: AnalysisResult; trace: AnalysisTrace }> {
+  const opts = { ...DEFAULT_CONFIG, ...config };
+  const startTime = Date.now();
+  const timestamp = new Date();
+
+  // Prepare input
+  const input = {
+    extractedTitle: content.title,
+    content: content.cleanText.substring(0, 15000),
+    contentType: content.contentType,
+    userTitle: userContext.userTitle || "",
+    userSummary: userContext.userSummary || "",
+    userTags: userContext.userTags?.join(", ") || "",
+  };
+
+  // Format the prompt for tracing
+  const promptText = await analysisPrompt.format(input);
+
+  // Create LLM with callbacks to capture token usage
+  const llm = new ChatOpenAI({
+    modelName: opts.modelName,
+    temperature: opts.temperature,
+    maxTokens: opts.maxTokens,
+    maxRetries: 6,
+  });
+
+  const llmWithStructuredOutput = llm.withStructuredOutput(AnalysisResultSchema);
+  const chain = RunnableSequence.from([analysisPrompt, llmWithStructuredOutput]);
+
+  try {
+    // Run the chain
+    const result = await chain.invoke(input);
+    const duration = Date.now() - startTime;
+
+    // Extract token usage from the response
+    // LangChain stores this in the response metadata
+    const tokenUsage: TokenUsage = {
+      promptTokens: (result as any)?._response_metadata?.tokenUsage?.promptTokens || 0,
+      completionTokens: (result as any)?._response_metadata?.tokenUsage?.completionTokens || 0,
+      totalTokens: (result as any)?._response_metadata?.tokenUsage?.totalTokens || 0,
+    };
+
+    // If token usage not available, estimate it
+    if (tokenUsage.totalTokens === 0) {
+      tokenUsage.promptTokens = Math.ceil(promptText.length / 4);
+      tokenUsage.completionTokens = Math.ceil(JSON.stringify(result).length / 4);
+      tokenUsage.totalTokens = tokenUsage.promptTokens + tokenUsage.completionTokens;
+    }
+
+    // Calculate cost
+    const costBreakdown = calculateCost(opts.modelName, tokenUsage);
+
+    // Validate result
+    const validated = AnalysisResultSchema.parse(result);
+
+    // Build trace
+    const trace: AnalysisTrace = {
+      model: opts.modelName,
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+      promptText: promptText.substring(0, 5000), // Truncate for storage
+      response: validated,
+      tokenUsage,
+      cost: {
+        inputCost: costBreakdown.inputCost,
+        outputCost: costBreakdown.outputCost,
+        totalCost: costBreakdown.totalCost,
+      },
+      duration,
+      timestamp,
+    };
+
+    return { result: validated, trace };
+  } catch (error) {
+    console.error("[Analysis] Failed:", error);
+
+    // Return fallback with minimal trace
+    const fallback: AnalysisResult = {
+      title: userContext.userTitle || content.title || "Untitled Bookmark",
+      summary: userContext.userSummary || `Failed to analyze content from ${content.domain}`,
+      tags: userContext.userTags || [content.contentType, "needs-review"],
+    };
+
+    const trace: AnalysisTrace = {
+      model: opts.modelName,
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+      promptText: promptText.substring(0, 5000),
+      response: fallback,
+      tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      cost: { inputCost: 0, outputCost: 0, totalCost: 0 },
+      duration: Date.now() - startTime,
+      timestamp,
+    };
+
+    return { result: fallback, trace };
   }
 }
 

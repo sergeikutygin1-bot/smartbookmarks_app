@@ -29,138 +29,95 @@ import { PromptTemplate } from "@langchain/core/prompts";
  * }
  */
 
-export const judgePrompt = PromptTemplate.fromTemplate(`You are a quality evaluator for AI-generated bookmark summaries. Your role is to assess whether summaries meet quality standards across four critical dimensions.
+export const judgePrompt = PromptTemplate.fromTemplate(`You are a quality evaluator for AI-generated summaries. Assess this summary against the source content using a strict pass/fail binary for each criterion.
 
-## SOURCE CONTENT (Original Text - First 10,000 characters)
-
+## SOURCE CONTENT (first 10,000 chars)
 {sourceContent}
 
----
-
-## GENERATED SUMMARY (To Be Evaluated)
-
+## SUMMARY TO EVALUATE
 {summary}
 
----
-
-## EVALUATION TASK
-
-Evaluate the generated summary using a **step-by-step** approach. Think through each criterion carefully before making your judgment.
-
-### EXPECTED STANDARDS
-
-**Target Length**: {expectedLength}
-
-**Required Format**: Markdown with:
-- **Bold** for key terms, concepts, names
-- Bullet points for lists
-- Clear paragraph structure
-- Optional section headings with ##
+## EXPECTED STANDARDS
+- Length: {expectedLength}
+- Format: Markdown with **bold** for key terms and bullet points for lists
 
 ---
 
 ## EVALUATION CRITERIA (Binary: PASS or FAIL)
 
-Evaluate each dimension independently. Be strict but fair.
+Evaluate each independently. Overall verdict = PASS only if ALL criteria pass.
 
-### 1. COMPREHENSIVENESS
+### 1. ACCURACY (Highest Priority)
+**Question:** Is all information factually consistent with the source?
 
-**Question**: Does the summary capture all the main points, key arguments, and important details from the source?
-
-**PASS if**:
-- Includes all major topics/arguments from the source
-- Captures essential supporting details (examples, data, names)
-- Provides appropriate context for understanding
-- Balances breadth (covering topics) and depth (sufficient detail)
-
-**FAIL if**:
-- Missing critical arguments or major topics
-- Omits important examples or supporting evidence
-- Lacks context needed to understand the content
-- Too surface-level or too narrow in scope
-
-**Your Analysis**: [Think step-by-step: What are the main points in the source? Are they all in the summary?]
-
----
-
-### 2. ACCURACY (Factual Consistency)
-
-**Question**: Is all information in the summary factually consistent with the source content?
-
-**PASS if**:
-- All facts, numbers, names, and dates match the source exactly
-- No fabricated or hallucinated information
-- Claims and conclusions align with source
+**PASS if:**
+- All facts, numbers, names, dates match source exactly
+- No fabricated information (hallucinations)
 - Technical terms used correctly
 
-**FAIL if**:
-- Contains information not present in the source (hallucination)
-- Misrepresents facts, numbers, or names
-- Contradicts or distorts source claims
+**FAIL if:**
+- Contains information not in source
+- Misrepresents facts or contradicts source
 - Incorrect technical terminology
 
-**Your Analysis**: [Check each factual claim in the summary against the source]
+### 2. COMPREHENSIVENESS
+**Question:** Does the summary capture all main points and key details?
+
+**PASS if:**
+- Includes all major topics/arguments from source
+- Contains essential supporting details (examples, data)
+- Provides sufficient context for understanding
+
+**FAIL if:**
+- Missing critical arguments or major topics
+- Too surface-level or too narrow
+- Omits important evidence or context
+
+### 3. FORMATTING & CLARITY
+**Question:** Is the summary well-formatted with clear organization?
+
+**PASS if:**
+- Uses **bold** for key terms (at least 5 instances)
+- Uses bullet points appropriately
+- Logical flow with clear expression
+- Proper paragraph structure
+
+**FAIL if:**
+- Plain text with no formatting
+- Confusing organization or abrupt transitions
+- Verbose or repetitive
+- Minimal formatting (< 3 bold instances)
 
 ---
 
-### 3. FORMATTING (Markdown Usage)
+## CALIBRATION EXAMPLES
 
-**Question**: Does the summary use markdown formatting effectively for readability?
+**PASS Example:**
+"This article explores **type-first development** for **GraphQL APIs**...
+- **Schema-first approach**: Define types before resolvers
+- **Modular composition**: Break schemas into domain modules
+Key benefit: catches errors at build time, not runtime."
 
-**PASS if**:
-- Uses **bold** for key terms, concepts, important phrases (at least 5-10 instances)
-- Uses bullet points for lists of items, arguments, or features
-- Has clear paragraph breaks for readability
-- Optional: Uses ## or ### headings for major sections
+(✓ Accurate, ✓ Comprehensive, ✓ Well-formatted)
 
-**FAIL if**:
-- Plain text with no markdown formatting at all
-- Minimal formatting (fewer than 3 instances of bold)
-- No bullet points when lists are appropriate
-- Wall of text with no paragraph breaks
+**FAIL Example:**
+"GraphQL is a popular query language that many developers use. It has schemas and resolvers. Schema-first design is recommended by experts. It's good for APIs."
 
-**Your Analysis**: [Count bold instances, check for bullets, assess structure]
+(✓ Accurate, ✗ Not comprehensive - too vague, ✗ No formatting)
 
 ---
 
-### 4. CLARITY (Organization & Readability)
+## YOUR RESPONSE (JSON Format)
 
-**Question**: Is the summary well-organized with logical flow and clear expression?
+Provide structured evaluation:
 
-**PASS if**:
-- Ideas presented in logical order (e.g., overview → details → implications)
-- Smooth transitions between topics
-- Clear, concise language (not verbose or redundant)
-- Easy to follow and understand
+{{
+  "accuracy": "pass" | "fail",
+  "comprehensiveness": "pass" | "fail",
+  "formatting": "pass" | "fail",
+  "overall_verdict": "pass" | "fail",
+  "reasoning": "Brief explanation (2-3 sentences)",
+  "issues": ["Specific issue 1", "Specific issue 2"]
+}}
 
-**FAIL if**:
-- Confusing or illogical organization
-- Abrupt topic shifts without transitions
-- Repetitive or unnecessarily verbose
-- Unclear or convoluted expression
-
-**Your Analysis**: [Read the summary as a user would - is the flow natural?]
-
----
-
-## OVERALL VERDICT RULES
-
-**Overall Verdict = PASS** if and only if **ALL FOUR criteria are PASS**
-
-**Overall Verdict = FAIL** if **ANY criterion is FAIL**
-
----
-
-## YOUR RESPONSE
-
-Now provide your evaluation:
-
-1. **First**, analyze each criterion step-by-step (use the "Your Analysis" sections above)
-2. **Then**, assign PASS or FAIL to each dimension
-3. **List specific issues** found (be concrete: "Missing discussion of X", "Fabricated claim about Y", "No bold formatting used", etc.)
-4. **Provide overall verdict** (PASS only if all four are PASS)
-5. **Explain your reasoning** in 2-3 sentences
-
-Be objective and consistent. Use the same standards for every evaluation.
-
-Return your evaluation in JSON format matching the required schema.`);
+Be objective and consistent. Use the same standards for every evaluation.`);

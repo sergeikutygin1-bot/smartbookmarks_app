@@ -238,7 +238,13 @@ router.get("/jobs/:jobId", async (req: Request, res: Response) => {
     return res.status(404).json({ error: "Job not found" });
   }
 
-  res.json({ job });
+  // Calculate cost breakdown
+  const costAnalysis = jobStorage.calculateJobCost(job);
+
+  res.json({
+    job,
+    costAnalysis
+  });
 });
 
 /**
@@ -370,6 +376,194 @@ function getInlineAdminHTML(): string {
       margin-right: 10px;
     }
     button:hover { background: #45a049; }
+
+    /* Modal Styles for Trace Viewer */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0,0,0,0.8);
+    }
+    .modal-content {
+      background-color: #1a1a1a;
+      margin: 2% auto;
+      padding: 0;
+      border: 1px solid #333;
+      width: 95%;
+      max-width: 1600px;
+      border-radius: 8px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-header {
+      background: #2a2a2a;
+      padding: 20px;
+      border-bottom: 2px solid #4CAF50;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 {
+      margin: 0;
+      color: #4CAF50;
+      font-size: 20px;
+    }
+    .close {
+      color: #888;
+      font-size: 32px;
+      font-weight: bold;
+      cursor: pointer;
+      line-height: 20px;
+    }
+    .close:hover { color: #fff; }
+    .modal-body {
+      padding: 20px;
+    }
+    .trace-section {
+      background: #2a2a2a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .trace-section h3 {
+      color: #4CAF50;
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 10px;
+    }
+    .cost-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .cost-card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 15px;
+    }
+    .cost-card .label {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .cost-card .value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #4CAF50;
+    }
+    .cost-card .sub {
+      font-size: 11px;
+      color: #666;
+      margin-top: 5px;
+    }
+    .timeline {
+      position: relative;
+      padding: 20px 0;
+    }
+    .timeline-item {
+      position: relative;
+      padding: 15px 0 15px 40px;
+      border-left: 2px solid #333;
+    }
+    .timeline-item:last-child {
+      border-left-color: transparent;
+    }
+    .timeline-dot {
+      position: absolute;
+      left: -6px;
+      top: 20px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #4CAF50;
+    }
+    .timeline-content {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 15px;
+    }
+    .timeline-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .agent-name {
+      font-size: 16px;
+      font-weight: bold;
+      color: #4CAF50;
+    }
+    .duration {
+      font-size: 12px;
+      color: #888;
+      background: #2a2a2a;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .llm-details {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #333;
+    }
+    .llm-detail-item {
+      font-size: 12px;
+    }
+    .llm-detail-item .label {
+      color: #888;
+      display: block;
+      margin-bottom: 2px;
+    }
+    .llm-detail-item .value {
+      color: #fff;
+      font-weight: bold;
+    }
+    .prompt-viewer, .response-viewer {
+      background: #000;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 10px;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 11px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .prompt-viewer pre, .response-viewer pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      color: #e0e0e0;
+    }
+    .expand-btn {
+      background: #2a2a2a;
+      color: #4CAF50;
+      border: 1px solid #333;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      margin-top: 10px;
+    }
+    .expand-btn:hover {
+      background: #333;
+    }
   </style>
 </head>
 <body>
@@ -419,6 +613,19 @@ function getInlineAdminHTML(): string {
       </thead>
       <tbody id="jobs"></tbody>
     </table>
+  </div>
+
+  <!-- Trace Viewer Modal -->
+  <div id="traceModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTitle">LLM Execution Trace</h2>
+        <span class="close" onclick="closeTraceModal()">&times;</span>
+      </div>
+      <div class="modal-body" id="traceContent">
+        <!-- Dynamic trace content will be inserted here -->
+      </div>
+    </div>
   </div>
 
   <script>
@@ -607,38 +814,210 @@ function getInlineAdminHTML(): string {
         const res = await fetch(\`/admin/jobs/\${jobId}\`);
         const data = await res.json();
         const job = data.job;
+        const costAnalysis = data.costAnalysis;
 
-        let details = \`Job: \${jobId}\\n\`;
-        details += \`URL: \${job.url}\\n\`;
-        details += \`Status: \${job.status}\\n\`;
-        details += \`Queued: \${new Date(job.queuedAt).toLocaleString()}\\n\`;
-        if (job.startedAt) details += \`Started: \${new Date(job.startedAt).toLocaleString()}\\n\`;
-        if (job.completedAt) details += \`Completed: \${new Date(job.completedAt).toLocaleString()}\\n\`;
-        if (job.totalDuration) details += \`Duration: \${(job.totalDuration / 1000).toFixed(2)}s\\n\`;
+        // Build modal content
+        let content = '';
 
-        if (job.error) {
-          details += \`\\nError: \${job.error.message}\\n\`;
-        }
+        // Cost Overview Section
+        content += \`
+          <div class="trace-section">
+            <h3>💰 Cost Analysis</h3>
+            <div class="cost-grid">
+              <div class="cost-card">
+                <div class="label">Total Cost</div>
+                <div class="value">$\${costAnalysis.totalCost.toFixed(6)}</div>
+                <div class="sub">\${costAnalysis.totalTokens.toLocaleString()} tokens</div>
+              </div>
+        \`;
 
-        if (job.result) {
-          details += \`\\nResult:\\n\`;
-          details += \`  Title: \${job.result.title || 'N/A'}\\n\`;
-          details += \`  Tags: \${job.result.tags?.join(', ') || 'N/A'}\\n\`;
-          if (job.result.summary) {
-            details += \`  Summary: \${job.result.summary.substring(0, 200)}...\\n\`;
+        // Cost by agent
+        if (costAnalysis.byAgent) {
+          for (const [agent, stats] of Object.entries(costAnalysis.byAgent)) {
+            content += \`
+              <div class="cost-card">
+                <div class="label">\${agent}</div>
+                <div class="value">$\${stats.cost.toFixed(6)}</div>
+                <div class="sub">\${stats.tokens.toLocaleString()} tokens</div>
+              </div>
+            \`;
           }
         }
 
-        if (job.quality) {
-          details += \`\\nQuality Metrics:\\n\`;
-          if (job.quality.contentLength) details += \`  Content: \${Math.round(job.quality.contentLength / 1000)}K chars\\n\`;
-          if (job.quality.summaryLength) details += \`  Summary: \${job.quality.summaryLength} chars\\n\`;
-          if (job.quality.tagCount) details += \`  Tags: \${job.quality.tagCount}\\n\`;
+        content += \`
+            </div>
+          </div>
+        \`;
+
+        // Agent Execution Timeline
+        if (job.agentTraces && job.agentTraces.length > 0) {
+          content += \`
+            <div class="trace-section">
+              <h3>🔍 Agent Execution Timeline</h3>
+              <div class="timeline">
+          \`;
+
+          job.agentTraces.forEach((trace, index) => {
+            const startTime = new Date(trace.startTime).toLocaleTimeString();
+            const duration = trace.duration ? \`\${trace.duration}ms\` : 'N/A';
+
+            content += \`
+              <div class="timeline-item">
+                <div class="timeline-dot"></div>
+                <div class="timeline-content">
+                  <div class="timeline-header">
+                    <span class="agent-name">\${trace.agentName}</span>
+                    <span class="duration">\${duration}</span>
+                  </div>
+            \`;
+
+            // LLM Details if available
+            if (trace.llmTrace) {
+              const llm = trace.llmTrace;
+              content += \`
+                <div class="llm-details">
+                  <div class="llm-detail-item">
+                    <span class="label">Model</span>
+                    <span class="value">\${llm.model}</span>
+                  </div>
+                  <div class="llm-detail-item">
+                    <span class="label">Temperature</span>
+                    <span class="value">\${llm.temperature}</span>
+                  </div>
+                  <div class="llm-detail-item">
+                    <span class="label">Max Tokens</span>
+                    <span class="value">\${llm.maxTokens}</span>
+                  </div>
+                  <div class="llm-detail-item">
+                    <span class="label">Input Tokens</span>
+                    <span class="value">\${llm.tokenUsage.promptTokens.toLocaleString()}</span>
+                  </div>
+                  <div class="llm-detail-item">
+                    <span class="label">Output Tokens</span>
+                    <span class="value">\${llm.tokenUsage.completionTokens.toLocaleString()}</span>
+                  </div>
+                  <div class="llm-detail-item">
+                    <span class="label">Total Tokens</span>
+                    <span class="value">\${llm.tokenUsage.totalTokens.toLocaleString()}</span>
+                  </div>
+                  <div class="llm-detail-item">
+                    <span class="label">Input Cost</span>
+                    <span class="value">$\${llm.cost.inputCost.toFixed(6)}</span>
+                  </div>
+                  <div class="llm-detail-item">
+                    <span class="label">Output Cost</span>
+                    <span class="value">$\${llm.cost.outputCost.toFixed(6)}</span>
+                  </div>
+                  <div class="llm-detail-item">
+                    <span class="label">Total Cost</span>
+                    <span class="value">$\${llm.cost.totalCost.toFixed(6)}</span>
+                  </div>
+                </div>
+
+                <details style="margin-top: 10px;">
+                  <summary style="cursor: pointer; color: #4CAF50; font-weight: bold;">View Prompt</summary>
+                  <div class="prompt-viewer">
+                    <pre>\${llm.promptText}</pre>
+                  </div>
+                </details>
+
+                <details style="margin-top: 10px;">
+                  <summary style="cursor: pointer; color: #4CAF50; font-weight: bold;">View Response</summary>
+                  <div class="response-viewer">
+                    <pre>\${JSON.stringify(llm.response, null, 2)}</pre>
+                  </div>
+                </details>
+              \`;
+            }
+
+            // Metadata if available
+            if (trace.metadata) {
+              content += \`
+                <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333; font-size: 11px; color: #888;">
+                  Metadata: \${JSON.stringify(trace.metadata)}
+                </div>
+              \`;
+            }
+
+            content += \`
+                </div>
+              </div>
+            \`;
+          });
+
+          content += \`
+              </div>
+            </div>
+          \`;
         }
 
-        alert(details);
+        // Job Summary Section
+        content += \`
+          <div class="trace-section">
+            <h3>📊 Job Summary</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+              <div>
+                <div class="label" style="color: #888; margin-bottom: 5px;">Job ID</div>
+                <div style="font-family: monospace; color: #fff;">\${jobId}</div>
+              </div>
+              <div>
+                <div class="label" style="color: #888; margin-bottom: 5px;">URL</div>
+                <div style="font-family: monospace; font-size: 11px; color: #fff; word-break: break-all;">\${job.url}</div>
+              </div>
+              <div>
+                <div class="label" style="color: #888; margin-bottom: 5px;">Status</div>
+                <div><span class="status \${job.status}">\${job.status}</span></div>
+              </div>
+              <div>
+                <div class="label" style="color: #888; margin-bottom: 5px;">Duration</div>
+                <div style="color: #fff;">\${job.totalDuration ? (job.totalDuration / 1000).toFixed(2) + 's' : 'N/A'}</div>
+              </div>
+            </div>
+        \`;
+
+        if (job.result) {
+          content += \`
+            <div style="margin-top: 20px;">
+              <div class="label" style="color: #888; margin-bottom: 5px;">Title</div>
+              <div style="color: #fff; margin-bottom: 10px;">\${job.result.title || 'N/A'}</div>
+
+              <div class="label" style="color: #888; margin-bottom: 5px;">Tags</div>
+              <div style="margin-bottom: 10px;">
+                \${job.result.tags?.map(tag => \`<span style="background: #2a2a2a; padding: 4px 8px; border-radius: 4px; margin-right: 5px; font-size: 11px; color: #4CAF50;">\${tag}</span>\`).join('') || 'N/A'}
+              </div>
+
+              <details>
+                <summary style="cursor: pointer; color: #4CAF50; font-weight: bold; margin-bottom: 10px;">View Summary</summary>
+                <div style="background: #000; border: 1px solid #333; border-radius: 4px; padding: 15px; font-size: 12px; color: #e0e0e0; line-height: 1.6;">
+                  \${job.result.summary || 'N/A'}
+                </div>
+              </details>
+            </div>
+          \`;
+        }
+
+        content += \`
+          </div>
+        \`;
+
+        // Show modal
+        document.getElementById('modalTitle').textContent = \`LLM Trace: \${jobId.replace('enrich-', '')}\`;
+        document.getElementById('traceContent').innerHTML = content;
+        document.getElementById('traceModal').style.display = 'block';
       } catch (error) {
         alert('Failed to load job details: ' + error.message);
+      }
+    }
+
+    function closeTraceModal() {
+      document.getElementById('traceModal').style.display = 'none';
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+      const modal = document.getElementById('traceModal');
+      if (event.target === modal) {
+        closeTraceModal();
       }
     }
 

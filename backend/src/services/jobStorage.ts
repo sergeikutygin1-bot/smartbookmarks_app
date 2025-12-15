@@ -15,6 +15,39 @@ import path from 'path';
 const STORAGE_DIR = path.join(process.cwd(), '.data', 'jobs');
 
 /**
+ * Token usage details
+ */
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+/**
+ * Cost breakdown
+ */
+export interface CostBreakdown {
+  inputCost: number;
+  outputCost: number;
+  totalCost: number;
+}
+
+/**
+ * LLM-specific trace data
+ */
+export interface LLMTrace {
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  promptText: string; // First 5000 chars of prompt
+  response: any; // Structured output
+  tokenUsage: TokenUsage;
+  cost: CostBreakdown;
+  duration: number;
+  timestamp: Date;
+}
+
+/**
  * Agent execution trace
  */
 export interface AgentTrace {
@@ -25,6 +58,10 @@ export interface AgentTrace {
   input: any;
   output?: any;
   error?: string;
+
+  // Enhanced LLM observability
+  llmTrace?: LLMTrace; // For Analysis, Judge, and Embedder agents
+
   metadata?: {
     model?: string;
     tokens?: number;
@@ -243,6 +280,41 @@ export class JobStorage {
 
     job.agentTraces.push(trace);
     await this.saveJob(job);
+  }
+
+  /**
+   * Calculate total cost for a job from all LLM traces
+   */
+  calculateJobCost(job: JobExecution): {
+    totalCost: number;
+    totalTokens: number;
+    byAgent: Record<string, { cost: number; tokens: number }>;
+  } {
+    const result = {
+      totalCost: 0,
+      totalTokens: 0,
+      byAgent: {} as Record<string, { cost: number; tokens: number }>,
+    };
+
+    for (const trace of job.agentTraces) {
+      if (trace.llmTrace) {
+        const agentName = trace.agentName;
+        const cost = trace.llmTrace.cost.totalCost;
+        const tokens = trace.llmTrace.tokenUsage.totalTokens;
+
+        result.totalCost += cost;
+        result.totalTokens += tokens;
+
+        if (!result.byAgent[agentName]) {
+          result.byAgent[agentName] = { cost: 0, tokens: 0 };
+        }
+
+        result.byAgent[agentName].cost += cost;
+        result.byAgent[agentName].tokens += tokens;
+      }
+    }
+
+    return result;
   }
 
   /**

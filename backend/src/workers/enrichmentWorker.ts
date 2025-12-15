@@ -89,10 +89,14 @@ async function processEnrichmentJob(
 
     console.log(`[Worker] ✓ ${job.id} completed in ${(processingTime / 1000).toFixed(1)}s - ${result.tagging?.tags?.length || 0} tags`);
 
+    // Collect detailed agent traces from enrichment agent
+    const agentTraces = agent.getAgentTraces();
+
     // Update job execution with final result
     jobExecution.status = 'completed';
     jobExecution.completedAt = new Date();
     jobExecution.totalDuration = processingTime;
+    jobExecution.agentTraces = agentTraces; // Store detailed LLM traces
     jobExecution.result = {
       title: result.title,
       summary: result.analysis.summary,
@@ -108,6 +112,12 @@ async function processEnrichmentJob(
       summaryLength: result.analysis?.summary?.length || 0,
       tagCount: result.tagging?.tags?.length || 0,
     };
+
+    // Calculate total cost from all LLM operations
+    const costAnalysis = jobStorage.calculateJobCost(jobExecution);
+    console.log(
+      `[Worker] 💰 ${job.id} cost: $${costAnalysis.totalCost.toFixed(6)} (${costAnalysis.totalTokens} tokens)`
+    );
 
     await jobStorage.saveJob(jobExecution);
 

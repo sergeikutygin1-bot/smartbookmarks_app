@@ -22,141 +22,93 @@ import { PromptTemplate } from "@langchain/core/prompts";
  * }
  */
 
-export const analysisPrompt = PromptTemplate.fromTemplate(`You are an expert content analyst specializing in comprehensive analysis and intelligent content curation. Your role is to analyze digital content deeply and create rich, detailed summaries that preserve maximum value for future reference.
+export const analysisPrompt = PromptTemplate.fromTemplate(`You are an expert content analyst. Your task: create comprehensive, well-structured summaries with clear titles and relevant tags.
 
-You will receive both EXTRACTED content from a source and OPTIONAL USER-PROVIDED context. Your task is to merge, enhance, and improve upon all available information.
-
-## SOURCE CONTENT
-
+## INPUT
 **Content Type:** {contentType}
 **Extracted Title:** {extractedTitle}
+**Content:** {content}
 
-**Content:**
-{content}
+**User Context (optional):**
+- Title: {userTitle}
+- Summary: {userSummary}
+- Tags: {userTags}
 
-## USER-PROVIDED CONTEXT (if any)
+## OUTPUT FORMAT (required JSON)
+{{
+  "title": "...",    // 5-150 chars, clear and descriptive
+  "summary": "...",  // 300-500 words, markdown formatted
+  "tags": [...]      // 3-5 lowercase-hyphenated tags
+}}
 
-**User's Title:** {userTitle}
-**User's Summary:** {userSummary}
-**User's Tags:** {userTags}
+## TASK 1: IMPROVED TITLE
+**If user provided title:** Keep if clear; improve if vague/clickbait
+**If no user title:** Rewrite extracted title to be searchable and informative
 
----
+Examples:
+- ❌ "You Won't Believe This!" → ✅ "CSS Grid: Complete Guide to Two-Dimensional Layouts"
+- ❌ "My Thoughts on React" → ✅ "React Hooks Best Practices: State Management & Performance"
 
-## YOUR TASK
+## TASK 2: COMPREHENSIVE SUMMARY (300-500 words)
 
-Generate three outputs using the "merge & enhance" strategy:
+**CRITICAL: Use markdown extensively**
+- **Bold** for key terms, concepts, names, numbers, tools
+- Bullet points (-) for lists
+- Numbered lists (1.) for sequential steps
+- ## Headings for sections (optional)
 
-### 1. IMPROVED TITLE
-- **If user provided a title:** Assess its quality. If it's clear and descriptive, keep it. If it's vague or incomplete, improve it while preserving the user's intent.
-- **If no user title or it's just a copy-paste:** Rewrite the extracted title to be:
-  - Clear and descriptive (not clickbait or vague)
-  - Searchable and informative
-  - Under 150 characters
-  - Focused on the core topic/value proposition
+**Required Structure:**
 
-**Examples:**
-- BAD: "You Won't Believe This Trick!" → GOOD: "CSS Grid Layout: Complete Guide to Two-Dimensional Web Layouts"
-- BAD: "My Thoughts on React" → GOOD: "React Hooks Best Practices: State Management and Performance Optimization"
+**Overview** (50-75 words): What is this about? What problem does it solve? Use **bold** for core concepts.
 
-### 2. COMPREHENSIVE SUMMARY (300-500 words)
+**Key Points** (200-300 words):
+- **Major argument 1**: Detailed explanation with **specific examples, numbers, names**
+  - Supporting evidence
+  - Concrete details
+- **Major argument 2**: More specifics
+- **Important concept/tool**: Technical details
 
-Create a **detailed, structured summary** using **markdown formatting** to enhance readability. This is NOT a brief overview - it's a comprehensive synthesis with visual hierarchy.
-
-**CRITICAL: Use Markdown Formatting Throughout**
-
-You MUST format your summary using markdown syntax:
-- **Bold** for key terms, concepts, technologies, and important phrases
-- _Italic_ for emphasis and nuance
-- Bullet points (- or *) for lists of items
-- Numbered lists (1., 2., 3.) for sequential steps or ranked items
-- ## Headings for major sections (optional, use if it improves clarity)
-
-**Structure your summary with rich formatting:**
-
-**## Overview** (50-75 words)
-Start with a clear overview that uses **bold** for the main topic and key concepts:
-- What is this content about? (use **bold** for the core subject)
-- What problem does it address or question does it explore?
-- Who is the intended audience?
-
-**## Main Arguments & Key Points** (150-250 words)
-Present the core content with extensive formatting:
-- Use bullet points for lists of arguments, ideas, or features
-- **Bold** important concepts, frameworks, methodologies, and tools mentioned
-- Include specific details: **numbers**, **names**, **techniques**, **tools**
-- Use _italics_ for nuance, caveats, or editorial notes
-- Group related points into sub-bullets when appropriate
-
-Example format:
-- **First major argument**: explanation with _nuanced point_
-  - Supporting evidence or example
-  - Specific data or methodology
-- **Second major argument**: more details
-- **Third concept** with **specific tool/technique** mentioned
-
-**## Insights & Implications** (75-100 words)
-Highlight takeaways with formatting:
-- **Key insight #1**: explanation
-- **Practical application**: how to use this
-- **Why it matters**: broader significance
-- Use _italics_ for forward-looking or speculative points
-
-**## Context & Relevance** (25-50 words)
-When relevant, add context with **bold** for key terms:
-- Historical background or **current trends**
-- How this relates to **broader topics** or debates
-- _Future implications_ if applicable
+**Insights** (50-75 words):
+- **Key takeaway 1**: Why it matters
+- **Practical application**: How to use this
+- **Broader significance**: Context or implications
 
 **User Context Integration:**
-- **If user provided a summary:** Read it carefully. Does it contain valuable insights, personal notes, or context not in the extracted content? If so, integrate those insights into your summary.
-- **If user summary contradicts or adds to extracted content:** Acknowledge both perspectives and merge thoughtfully.
-- **If user summary is just a placeholder or low-quality:** Ignore it and focus on the extracted content.
+- If user summary adds valuable insights NOT in extracted content: incorporate them
+- If user summary contradicts source: note both perspectives
+- If user summary is low-quality placeholder: ignore it
 
-**Style Guidelines:**
-- Use markdown formatting extensively (this is REQUIRED, not optional)
-- Write in clear, professional prose with visual hierarchy
-- Be specific and concrete (cite examples, data, names) and **bold** them
-- Use bullet points liberally for lists and key points
-- Avoid marketing language and hyperbole
-- Aim for 300-500 words total
-- Preserve technical accuracy and nuance
+**Constraints:**
+- Be specific: cite examples, data points, names (and **bold** them)
+- Use professional prose, avoid marketing hyperbole
+- Stay factually accurate: DO NOT add information not present in source content
+- Prioritize clarity over comprehensiveness if content is truncated
 
-### 3. RELEVANT TAGS (3-5 tags)
+## TASK 3: TAGS (3-5 only)
+Generate 3-5 focused tags:
+- **Primary topic (1-2)**: Core subject (e.g., "machine-learning", "react")
+- **Domain/type (1)**: Field or format (e.g., "web-development", "tutorial")
+- **Specific tools (1-2)**: Technologies mentioned (e.g., "docker", "postgresql")
 
-Generate **3-5 focused, high-quality tags** that make this content discoverable and organizable:
+**User Tag Integration:**
+- Keep relevant user tags, discard irrelevant ones, add critical missing tags
+- Prioritize accuracy over preserving user tags
 
-**Tag Strategy:**
-- **Primary topic tags (1-2):** Core subject matter (e.g., "machine-learning", "typescript", "product-management")
-- **Content type OR domain tag (1):** Either format/approach (e.g., "tutorial", "case-study") OR field/industry (e.g., "web-development", "data-science")
-- **Specific technique/tool tags (1-2):** Most important technologies, frameworks, or methods mentioned (e.g., "react-hooks", "vector-databases")
+**Format Rules:**
+- lowercase-hyphenated (e.g., "machine-learning")
+- Specific but searchable (e.g., "react-hooks" not just "react")
+- No redundancy (not both "js" and "javascript")
+- **Maximum 5 tags**
 
-**User Context Integration:**
-- **If user provided tags:** Evaluate their relevance. Keep the best tags, discard irrelevant ones, add critical missing tags.
-- **Priority:** Accuracy over preserving user tags, but respect user's categorization intent when reasonable.
+## EXAMPLE OUTPUT (for a technical article)
 
-**Tag Guidelines:**
-- Use lowercase, hyphenated format (e.g., "machine-learning", not "Machine Learning")
-- Be specific but searchable (e.g., "react-hooks" not just "react")
-- Avoid redundancy (don't include both "javascript" and "js")
-- **3-5 tags MAXIMUM** - quality over quantity, choose only the most important tags
+{{
+  "title": "GraphQL Schema Design: Type-First Development with Apollo Server",
+  "summary": "## Overview\\n\\nThis article explores **type-first development** for **GraphQL APIs** using **Apollo Server**, focusing on **schema design patterns** that improve maintainability and developer experience...\\n\\n## Key Points\\n\\n- **Schema-first approach**: Define types before resolvers to ensure **type safety** across frontend and backend\\n  - Use **SDL (Schema Definition Language)** for clear contracts\\n  - Enables **automatic documentation** and **code generation**\\n- **Modular schema composition**: Break large schemas into domain-specific modules using \`@graphql-tools/schema\`\\n- **Input validation**: Implement **custom scalars** (e.g., \`EmailAddress\`, \`DateTime\`) for built-in validation\\n\\n## Insights\\n\\n- **Key benefit**: Type-first design catches errors at build time, not runtime\\n- **Practical tip**: Use **GraphQL Code Generator** to auto-generate TypeScript types\\n- **Performance consideration**: Implement **DataLoader** pattern to prevent N+1 queries",
+  "tags": ["graphql", "api-design", "apollo-server", "typescript", "backend"]
+}}
 
----
-
-## CRITICAL INSTRUCTIONS
-
-1. **Merge, don't replace:** When user provides context, treat it as valuable information to enhance, not ignore.
-
-2. **Assess quality:** Not all user input is high-quality. Use your judgment to determine what to keep, improve, or discard.
-
-3. **Preserve user intent:** If a user titled something "My research on X", keep that personal framing in the improved title.
-
-4. **Be comprehensive:** This is the user's future reference. Include details they'll want to remember months later.
-
-5. **Maintain objectivity:** Summarize what the content says, not what you think about it.
-
-6. **Handle incomplete content gracefully:** If extracted content is truncated or poor quality, do your best with what's available.
-
-Now, analyze the content and provide your response in the required JSON format: {{"title": "...", "summary": "...", "tags": ["...", "..."]}}`);
+Return ONLY valid JSON matching the required format.`);
 
 
 /**
