@@ -70,7 +70,7 @@ struct BookmarkListSidebar: View {
                 ForEach(viewModel.groupedBookmarks, id: \.0) { section in
                     Section(header: Text(section.0)) {
                         ForEach(section.1) { bookmark in
-                            BookmarkRow(viewModel: BookmarkRowViewModel(from: bookmark))
+                            BookmarkRow(viewModel: viewModel.getViewModel(for: bookmark))
                                 .tag(bookmark)
                         }
                     }

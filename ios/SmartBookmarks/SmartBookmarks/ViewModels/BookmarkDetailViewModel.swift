@@ -73,8 +73,8 @@ class BookmarkDetailViewModel: ObservableObject {
             // Notify parent
             onBookmarkUpdated?(bookmark)
 
-            // Haptic feedback for successful save
-            HapticManager.shared.success()
+            // Note: No haptic feedback for auto-save (feels disconnected)
+            // Haptics are only for immediate user actions
 
             // Reset to idle after showing "Saved"
             try? await Task.sleep(for: .seconds(2))
@@ -86,8 +86,8 @@ class BookmarkDetailViewModel: ObservableObject {
             self.error = error.localizedDescription
             print("Failed to save bookmark: \(error)")
 
-            // Haptic feedback for error
-            HapticManager.shared.error()
+            // Show error haptic only for user-initiated saves (not auto-save)
+            // For now, skip haptics entirely on save errors to avoid confusion
         }
 
         isSaving = false

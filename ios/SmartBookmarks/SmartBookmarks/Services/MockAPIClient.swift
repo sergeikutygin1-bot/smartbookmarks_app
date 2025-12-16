@@ -22,8 +22,8 @@ actor MockAPIClient {
         dateFrom: Date? = nil,
         dateTo: Date? = nil
     ) async throws -> [Bookmark] {
-        // Simulate network delay
-        try await Task.sleep(for: .milliseconds(500))
+        // Simulate network delay (reduced for faster initial load)
+        try await Task.sleep(for: .milliseconds(100))
 
         var results = bookmarks
 

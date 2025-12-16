@@ -19,6 +19,9 @@ class BookmarkListViewModel: ObservableObject {
 
     private let api: any BookmarkAPIProtocol
 
+    // Cache BookmarkRowViewModels to avoid recreating on every render
+    private var bookmarkViewModelsCache: [String: BookmarkRowViewModel] = [:]
+
     // MARK: - Initialization
 
     init(useMockAPI: Bool = true) {
@@ -169,6 +172,23 @@ class BookmarkListViewModel: ObservableObject {
     /// Get count of bookmarks
     var bookmarkCount: Int {
         bookmarks.count
+    }
+
+    /// Get cached BookmarkRowViewModels (creates new ones only when needed)
+    func getViewModel(for bookmark: Bookmark) -> BookmarkRowViewModel {
+        // Check if cached and still valid
+        if let cached = bookmarkViewModelsCache[bookmark.id],
+           cached.title == bookmark.title &&
+           cached.summary == bookmark.summary &&
+           cached.tags == bookmark.tags &&
+           cached.updatedAt == bookmark.updatedAt {
+            return cached
+        }
+
+        // Create new ViewModel and cache it
+        let viewModel = BookmarkRowViewModel(from: bookmark)
+        bookmarkViewModelsCache[bookmark.id] = viewModel
+        return viewModel
     }
 
     /// Group bookmarks by last update date (Today, Previous 30 Days, Previous 6 Months, Older)
