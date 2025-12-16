@@ -5,10 +5,9 @@ enum Config {
     nonisolated(unsafe) static var apiBaseURL: String {
         #if DEBUG
         // Unified backend on port 3002 (both CRUD and enrichment)
-        // For device testing, use your Mac's local IP address
+        // Using Mac's local IP address for physical device testing
         // To find your IP: System Settings → Network → Wi-Fi → Details → TCP/IP
-        // Replace "localhost" with your machine's IP when testing on physical device
-        return "http://localhost:3002/api"
+        return "http://192.168.1.6:3002/api"
         #else
         // Production URL
         return "https://api.smartbookmarks.com/api"
@@ -18,7 +17,7 @@ enum Config {
     /// Enrichment Service URL for AI processing
     nonisolated(unsafe) static var enrichmentBaseURL: String {
         #if DEBUG
-        return "http://localhost:3002"
+        return "http://192.168.1.6:3002"
         #else
         return "https://api.smartbookmarks.com"
         #endif

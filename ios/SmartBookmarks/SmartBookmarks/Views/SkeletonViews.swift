@@ -52,10 +52,19 @@ struct SkeletonShape: View {
     }
 
     var body: some View {
-        Rectangle()
-            .fill(Color.secondary.opacity(0.2))
-            .frame(width: width, height: height)
-            .cornerRadius(cornerRadius)
+        if let width = width {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.2))
+                .frame(width: width, height: height)
+                .cornerRadius(cornerRadius)
+        } else {
+            // Use maxWidth instead of explicit width for full-width shapes
+            Rectangle()
+                .fill(Color.secondary.opacity(0.2))
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .cornerRadius(cornerRadius)
+        }
     }
 }
 
