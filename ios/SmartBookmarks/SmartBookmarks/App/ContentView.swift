@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var listViewModel = BookmarkListViewModel(useMockAPI: true)
+    @StateObject private var listViewModel = BookmarkListViewModel(useMockAPI: false)
 
     var body: some View {
         NavigationSplitView {
@@ -180,7 +180,7 @@ struct BookmarkDetailContainer: View {
         self.bookmark = bookmark
         self.onBookmarkUpdated = onBookmarkUpdated
         self.onBookmarkDeleted = onBookmarkDeleted
-        _viewModel = StateObject(wrappedValue: BookmarkDetailViewModel(bookmark: bookmark, useMockAPI: true))
+        _viewModel = StateObject(wrappedValue: BookmarkDetailViewModel(bookmark: bookmark, useMockAPI: false))
     }
 
     var body: some View {
@@ -422,7 +422,7 @@ struct BookmarkDetailContainer: View {
 // MARK: - Add Bookmark Sheet (Placeholder)
 
 struct AddBookmarkSheet: View {
-    @StateObject private var viewModel = AddBookmarkViewModel(useMockAPI: true)
+    @StateObject private var viewModel = AddBookmarkViewModel(useMockAPI: false)
     @Environment(\.dismiss) private var dismiss
 
     let onBookmarkCreated: (Bookmark) -> Void

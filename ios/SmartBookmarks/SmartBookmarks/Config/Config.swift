@@ -4,10 +4,11 @@ enum Config {
     /// API Base URL for bookmarks CRUD operations
     nonisolated(unsafe) static var apiBaseURL: String {
         #if DEBUG
+        // Unified backend on port 3002 (both CRUD and enrichment)
         // For device testing, use your Mac's local IP address
         // To find your IP: System Settings → Network → Wi-Fi → Details → TCP/IP
         // Replace "localhost" with your machine's IP when testing on physical device
-        return "http://localhost:3000/api"
+        return "http://localhost:3002/api"
         #else
         // Production URL
         return "https://api.smartbookmarks.com/api"
