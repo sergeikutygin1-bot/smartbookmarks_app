@@ -40,6 +40,8 @@ class BookmarkListViewModel: ObservableObject {
                 dateFrom: nil,
                 dateTo: nil
             )
+            // Sort by last updated (most recent first)
+            bookmarks.sort { $0.updatedAt > $1.updatedAt }
         } catch {
             self.error = error.localizedDescription
             print("Failed to load bookmarks: \(error)")
@@ -77,9 +79,15 @@ class BookmarkListViewModel: ObservableObject {
             if selectedBookmark?.id == id {
                 selectedBookmark = nil
             }
+
+            // Haptic feedback for successful deletion
+            HapticManager.shared.light()
         } catch {
             self.error = error.localizedDescription
             print("Failed to delete bookmark: \(error)")
+
+            // Haptic feedback for error
+            HapticManager.shared.error()
         }
     }
 
@@ -116,15 +124,21 @@ class BookmarkListViewModel: ObservableObject {
     /// Create a new empty bookmark and select it
     func createEmptyBookmark() async {
         do {
-            // Create empty bookmark with placeholder
-            let bookmark = try await api.createBookmark(url: "https://", title: "New Bookmark")
+            // Create empty bookmark (empty URL so placeholder shows)
+            let bookmark = try await api.createBookmark(url: "", title: "New Bookmark")
 
             // Add to list and select
             bookmarks.insert(bookmark, at: 0)
             selectedBookmark = bookmark
+
+            // Haptic feedback for successful creation
+            HapticManager.shared.light()
         } catch {
             self.error = error.localizedDescription
             print("Failed to create empty bookmark: \(error)")
+
+            // Haptic feedback for error
+            HapticManager.shared.error()
         }
     }
 
@@ -157,23 +171,34 @@ class BookmarkListViewModel: ObservableObject {
         bookmarks.count
     }
 
-    /// Group bookmarks by creation date (Today, Yesterday, This Week, Older)
+    /// Group bookmarks by last update date (Today, Previous 30 Days, Previous 6 Months, Older)
     var groupedBookmarks: [(String, [Bookmark])] {
-        let today = bookmarks.filter { $0.createdAt.isToday }
-        let yesterday = bookmarks.filter { $0.createdAt.isYesterday && !$0.createdAt.isToday }
-        let thisWeek = bookmarks.filter { $0.createdAt.isWithinLastWeek && !$0.createdAt.isYesterday && !$0.createdAt.isToday }
-        let older = bookmarks.filter { !$0.createdAt.isWithinLastWeek }
+        let now = Date()
+        let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
+        let sixMonthsAgo = Calendar.current.date(byAdding: .month, value: -6, to: now) ?? now
+
+        // Filter by updatedAt instead of createdAt
+        let today = bookmarks.filter { Calendar.current.isDateInToday($0.updatedAt) }
+        let previous30Days = bookmarks.filter {
+            !Calendar.current.isDateInToday($0.updatedAt) &&
+            $0.updatedAt >= thirtyDaysAgo
+        }
+        let previous6Months = bookmarks.filter {
+            $0.updatedAt < thirtyDaysAgo &&
+            $0.updatedAt >= sixMonthsAgo
+        }
+        let older = bookmarks.filter { $0.updatedAt < sixMonthsAgo }
 
         var grouped: [(String, [Bookmark])] = []
 
         if !today.isEmpty {
             grouped.append(("Today", today))
         }
-        if !yesterday.isEmpty {
-            grouped.append(("Yesterday", yesterday))
+        if !previous30Days.isEmpty {
+            grouped.append(("Previous 30 Days", previous30Days))
         }
-        if !thisWeek.isEmpty {
-            grouped.append(("This Week", thisWeek))
+        if !previous6Months.isEmpty {
+            grouped.append(("Previous 6 Months", previous6Months))
         }
         if !older.isEmpty {
             grouped.append(("Older", older))

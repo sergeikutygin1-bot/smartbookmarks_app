@@ -45,13 +45,35 @@ struct BookmarkListSidebar: View {
 
     var body: some View {
         List(selection: $viewModel.selectedBookmark) {
-            ForEach(viewModel.bookmarks) { bookmark in
-                BookmarkRow(bookmark: bookmark)
-                    .tag(bookmark)
-            }
-            .onDelete { offsets in
-                Task {
-                    await viewModel.deleteBookmark(at: offsets)
+            // Show skeleton loading during initial load
+            if viewModel.isLoading && !viewModel.hasBookmarks {
+                SkeletonBookmarkList()
+            } else {
+                // Show refresh indicator only when already have bookmarks
+                if viewModel.isLoading && viewModel.hasBookmarks {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Refreshing...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    }
+                }
+
+                // Use grouped bookmarks for better organization
+                ForEach(viewModel.groupedBookmarks, id: \.0) { section in
+                    Section(header: Text(section.0)) {
+                        ForEach(section.1) { bookmark in
+                            BookmarkRow(viewModel: BookmarkRowViewModel(from: bookmark))
+                                .tag(bookmark)
+                        }
+                    }
                 }
             }
         }
@@ -79,9 +101,8 @@ struct BookmarkListSidebar: View {
             }
         }
         .overlay {
-            if viewModel.isLoading && !viewModel.hasBookmarks {
-                ProgressView("Loading...")
-            } else if !viewModel.hasBookmarks {
+            // Only show empty state when not loading and no bookmarks
+            if !viewModel.isLoading && !viewModel.hasBookmarks {
                 ContentUnavailableView(
                     "No Bookmarks",
                     systemImage: "bookmark.slash",
@@ -94,52 +115,46 @@ struct BookmarkListSidebar: View {
 
 // MARK: - Bookmark Row (Placeholder)
 
-struct BookmarkRow: View {
-    let bookmark: Bookmark
+struct BookmarkRow: View, Equatable {
+    let viewModel: BookmarkRowViewModel
+
+    // MARK: - Equatable Implementation
+    // Delegate to ViewModel's Equatable implementation
+    static func == (lhs: BookmarkRow, rhs: BookmarkRow) -> Bool {
+        return lhs.viewModel == rhs.viewModel
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Image(systemName: bookmark.contentType.icon)
+                Image(systemName: viewModel.contentTypeIcon)
                     .foregroundStyle(.secondary)
                     .font(.caption)
 
-                Text(bookmark.domain)
+                Text(viewModel.domain)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Spacer()
 
-                Text(bookmark.createdAt.relativeTime)
+                Text(viewModel.relativeTimeString)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
 
-            Text(bookmark.title)
+            Text(viewModel.title)
                 .font(.headline)
                 .lineLimit(2)
 
-            if let summary = bookmark.summary, !summary.isEmpty {
+            if let summary = viewModel.summary, !summary.isEmpty {
                 Text(summary)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
 
-            if !bookmark.tags.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        ForEach(bookmark.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.caption2)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.appAccent.opacity(0.1))
-                                .foregroundStyle(Color.appAccent)
-                                .clipShape(Capsule())
-                        }
-                    }
-                }
+            if !viewModel.tags.isEmpty {
+                TagsRowView(tags: viewModel.tags)
             }
         }
         .padding(.vertical, 4)
@@ -154,6 +169,8 @@ struct BookmarkDetailContainer: View {
     let onBookmarkDeleted: () -> Void
 
     @StateObject private var viewModel: BookmarkDetailViewModel
+    @State private var newTagInput = ""
+    @State private var urlError: String?
 
     init(
         bookmark: Bookmark,
@@ -185,12 +202,33 @@ struct BookmarkDetailContainer: View {
                         .clipShape(Capsule())
                 }
 
-                // URL
-                Link(destination: URL(string: viewModel.bookmark.url)!) {
-                    Text(viewModel.bookmark.url)
+                // URL (Editable with validation)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("URL")
                         .font(.caption)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+
+                    TextField("Paste URL here...", text: Binding(
+                        get: { viewModel.bookmark.url },
+                        set: { url in
+                            viewModel.updateURL(url)
+                            validateURL(url)
+                        }
+                    ))
+                    .textContentType(.URL)
+                    .keyboardType(.URL)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .font(.subheadline)
+                    .foregroundStyle(urlError != nil ? .red : .blue)
+                    .tint(.blue)
+
+                    // Show validation error
+                    if let error = urlError {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
                 }
 
                 Divider()
@@ -256,7 +294,7 @@ struct BookmarkDetailContainer: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    // Display tags
+                    // Display existing tags
                     if !viewModel.bookmark.tags.isEmpty {
                         FlowLayout(spacing: 8) {
                             ForEach(viewModel.bookmark.tags, id: \.self) { tag in
@@ -277,6 +315,25 @@ struct BookmarkDetailContainer: View {
                                 .clipShape(Capsule())
                             }
                         }
+                    }
+
+                    // Add new tag input
+                    HStack(spacing: 8) {
+                        TextField("Add tag...", text: $newTagInput)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.subheadline)
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                            .onSubmit {
+                                addTag()
+                            }
+
+                        Button(action: addTag) {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(Color.appAccent)
+                                .font(.title3)
+                        }
+                        .disabled(newTagInput.trimmed.isEmpty)
                     }
                 }
 
@@ -332,6 +389,32 @@ struct BookmarkDetailContainer: View {
         }
         .onAppear {
             viewModel.onBookmarkUpdated = onBookmarkUpdated
+            validateURL(viewModel.bookmark.url)
+        }
+    }
+
+    // MARK: - Helper Functions
+
+    private func addTag() {
+        let trimmed = newTagInput.trimmed
+        guard !trimmed.isEmpty else { return }
+
+        viewModel.addTag(trimmed)
+        newTagInput = "" // Clear input after adding
+    }
+
+    private func validateURL(_ url: String) {
+        // Empty URL is allowed (for new bookmarks)
+        guard !url.isEmpty else {
+            urlError = nil
+            return
+        }
+
+        // Check if URL is valid
+        if url.isValidURL {
+            urlError = nil
+        } else {
+            urlError = "Invalid URL format"
         }
     }
 }

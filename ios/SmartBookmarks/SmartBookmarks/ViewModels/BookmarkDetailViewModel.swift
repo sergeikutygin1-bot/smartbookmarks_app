@@ -73,6 +73,9 @@ class BookmarkDetailViewModel: ObservableObject {
             // Notify parent
             onBookmarkUpdated?(bookmark)
 
+            // Haptic feedback for successful save
+            HapticManager.shared.success()
+
             // Reset to idle after showing "Saved"
             try? await Task.sleep(for: .seconds(2))
             if case .saved = saveStatus {
@@ -82,6 +85,9 @@ class BookmarkDetailViewModel: ObservableObject {
             saveStatus = .error(error.localizedDescription)
             self.error = error.localizedDescription
             print("Failed to save bookmark: \(error)")
+
+            // Haptic feedback for error
+            HapticManager.shared.error()
         }
 
         isSaving = false
@@ -140,6 +146,7 @@ class BookmarkDetailViewModel: ObservableObject {
                 case "completed":
                     guard let result = status.result else {
                         enrichmentStatus = .failed("No result returned")
+                        HapticManager.shared.error()
                         return
                     }
 
@@ -147,12 +154,16 @@ class BookmarkDetailViewModel: ObservableObject {
                     await applyEnrichmentResults(result)
                     enrichmentStatus = .completed
 
+                    // Haptic feedback for successful enrichment
+                    HapticManager.shared.success()
+
                     // Auto-save after enrichment
                     await save()
                     return
 
                 case "failed":
                     enrichmentStatus = .failed(status.error ?? "Enrichment failed")
+                    HapticManager.shared.error()
                     return
 
                 case "queued", "active":
@@ -194,6 +205,12 @@ class BookmarkDetailViewModel: ObservableObject {
     }
 
     // MARK: - Field Updates
+
+    /// Update bookmark URL
+    func updateURL(_ url: String) {
+        bookmark.url = url
+        scheduleAutoSave()
+    }
 
     /// Update bookmark title
     func updateTitle(_ title: String) {

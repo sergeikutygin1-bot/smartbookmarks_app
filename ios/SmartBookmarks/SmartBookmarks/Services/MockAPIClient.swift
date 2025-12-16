@@ -48,15 +48,22 @@ actor MockAPIClient {
         // Simulate network delay
         try await Task.sleep(for: .milliseconds(300))
 
-        guard let urlObj = URL(string: url) else {
-            throw NetworkError.invalidURL
+        // Allow empty URL for new bookmarks (user will fill it in)
+        let urlObj: URL?
+        if url.isEmpty {
+            urlObj = nil
+        } else {
+            guard let validURL = URL(string: url) else {
+                throw NetworkError.invalidURL
+            }
+            urlObj = validURL
         }
 
         let bookmark = Bookmark(
             id: UUID().uuidString,
             url: url,
-            title: title ?? urlObj.host ?? "Untitled",
-            domain: urlObj.host ?? "unknown",
+            title: title ?? urlObj?.host ?? "New Bookmark",
+            domain: urlObj?.host ?? "example.com",
             summary: nil,
             contentType: .other,
             tags: [],
