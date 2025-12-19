@@ -62,22 +62,30 @@ router.get('/:id', async (req: Request, res: Response) => {
  * Create a new bookmark
  */
 router.post('/', async (req: Request, res: Response) => {
+  console.log('📝 POST /api/bookmarks received');
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  console.log('Content-Type:', req.headers['content-type']);
+
   try {
     const { url, title } = req.body;
+    console.log(`Extracted - url: "${url}", title: "${title}"`);
 
     // Validate request (allow empty URL for new bookmarks)
     if (url === undefined) {
+      console.log('❌ Validation failed: URL is undefined');
       return res.status(400).json({
         error: 'Invalid request',
         message: 'URL field is required (can be empty string)'
       });
     }
 
+    console.log('✅ Creating bookmark with url:', url);
     const bookmark = await bookmarkStorage.createBookmark({ url, title });
+    console.log('✅ Bookmark created successfully:', bookmark.id);
 
     res.status(201).json({ data: bookmark });
   } catch (error) {
-    console.error('Error creating bookmark:', error);
+    console.error('❌ Error creating bookmark:', error);
     res.status(500).json({
       error: 'Failed to create bookmark',
       message: error instanceof Error ? error.message : 'Unknown error'

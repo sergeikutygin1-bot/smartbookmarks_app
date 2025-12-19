@@ -1,7 +1,7 @@
 import Foundation
 
 /// Content type of a bookmark (article, video, tweet, PDF, etc.)
-enum ContentType: String, Codable, CaseIterable, Hashable {
+enum ContentType: String, Codable, CaseIterable, Hashable, Sendable {
     case article
     case video
     case tweet

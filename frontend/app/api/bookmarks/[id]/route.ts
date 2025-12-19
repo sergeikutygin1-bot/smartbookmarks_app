@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { loadBookmarksServer, saveBookmarksServer } from '@/lib/server-storage';
 
 export const dynamic = 'force-dynamic';
 
+const BACKEND_API = 'http://localhost:3002/api/bookmarks';
+
 /**
  * GET /api/bookmarks/:id
- * Get a single bookmark by ID
+ * Proxy to backend API to get a single bookmark
  */
 export async function GET(
   request: NextRequest,
@@ -13,17 +14,20 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const bookmarks = loadBookmarksServer();
-    const bookmark = bookmarks.find((b) => b.id === id);
+    const response = await fetch(`${BACKEND_API}/${id}`);
 
-    if (!bookmark) {
-      return NextResponse.json(
-        { error: 'Bookmark not found' },
-        { status: 404 }
-      );
+    if (!response.ok) {
+      if (response.status === 404) {
+        return NextResponse.json(
+          { error: 'Bookmark not found' },
+          { status: 404 }
+        );
+      }
+      throw new Error(`Backend returned ${response.status}`);
     }
 
-    return NextResponse.json({ data: bookmark });
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error) {
     console.error('GET /api/bookmarks/:id error:', error);
     return NextResponse.json(
@@ -35,7 +39,7 @@ export async function GET(
 
 /**
  * PATCH /api/bookmarks/:id
- * Update a bookmark
+ * Proxy to backend API to update a bookmark
  */
 export async function PATCH(
   request: NextRequest,
@@ -44,35 +48,32 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
-    const bookmarks = loadBookmarksServer();
-    const bookmarkIndex = bookmarks.findIndex((b) => b.id === id);
 
-    if (bookmarkIndex === -1) {
-      return NextResponse.json(
-        { error: 'Bookmark not found' },
-        { status: 404 }
-      );
+    const response = await fetch(`${BACKEND_API}/${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return NextResponse.json(
+          { error: 'Bookmark not found' },
+          { status: 404 }
+        );
+      }
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Backend returned ${response.status}`);
     }
 
-    // Update bookmark with new data
-    const updatedBookmark = {
-      ...bookmarks[bookmarkIndex],
-      ...body,
-      id, // Prevent ID from being changed
-      updatedAt: new Date(),
-    };
-
-    // Update in array
-    bookmarks[bookmarkIndex] = updatedBookmark;
-
-    // Save to server storage (async with write queue)
-    await saveBookmarksServer(bookmarks);
-
-    return NextResponse.json({ data: updatedBookmark });
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error) {
     console.error('PATCH /api/bookmarks/:id error:', error);
     return NextResponse.json(
-      { error: 'Failed to update bookmark' },
+      { error: error instanceof Error ? error.message : 'Failed to update bookmark' },
       { status: 500 }
     );
   }
@@ -80,7 +81,7 @@ export async function PATCH(
 
 /**
  * DELETE /api/bookmarks/:id
- * Delete a bookmark
+ * Proxy to backend API to delete a bookmark
  */
 export async function DELETE(
   request: NextRequest,
@@ -88,21 +89,19 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const bookmarks = loadBookmarksServer();
-    const bookmarkIndex = bookmarks.findIndex((b) => b.id === id);
+    const response = await fetch(`${BACKEND_API}/${id}`, {
+      method: 'DELETE',
+    });
 
-    if (bookmarkIndex === -1) {
-      return NextResponse.json(
-        { error: 'Bookmark not found' },
-        { status: 404 }
-      );
+    if (!response.ok) {
+      if (response.status === 404) {
+        return NextResponse.json(
+          { error: 'Bookmark not found' },
+          { status: 404 }
+        );
+      }
+      throw new Error(`Backend returned ${response.status}`);
     }
-
-    // Remove bookmark
-    const updatedBookmarks = bookmarks.filter((b) => b.id !== id);
-
-    // Save to server storage (async with write queue)
-    await saveBookmarksServer(updatedBookmarks);
 
     return NextResponse.json({ success: true });
   } catch (error) {

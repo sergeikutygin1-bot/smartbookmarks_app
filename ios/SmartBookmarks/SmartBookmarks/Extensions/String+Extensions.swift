@@ -54,6 +54,40 @@ extension String {
         let wordsPerMinute = 200
         return max(1, wordCount / wordsPerMinute)
     }
+
+    /// Strip markdown formatting from string
+    /// Removes headers (# ## ###), bold (**), italic (*), links, etc.
+    /// Useful for displaying markdown text in plain text contexts like list previews
+    var strippingMarkdown: String {
+        var result = self
+
+        // Remove markdown headers (# ## ###)
+        result = result.replacingOccurrences(of: #"^#{1,6}\s+"#, with: "", options: .regularExpression)
+
+        // Remove bold (**text** or __text__)
+        result = result.replacingOccurrences(of: #"\*\*(.+?)\*\*"#, with: "$1", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"__(.+?)__"#, with: "$1", options: .regularExpression)
+
+        // Remove italic (*text* or _text_)
+        result = result.replacingOccurrences(of: #"\*(.+?)\*"#, with: "$1", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"_(.+?)_"#, with: "$1", options: .regularExpression)
+
+        // Remove links [text](url) -> text
+        result = result.replacingOccurrences(of: #"\[(.+?)\]\(.+?\)"#, with: "$1", options: .regularExpression)
+
+        // Remove inline code (`code`)
+        result = result.replacingOccurrences(of: #"`(.+?)`"#, with: "$1", options: .regularExpression)
+
+        // Remove bullet points and numbered lists
+        result = result.replacingOccurrences(of: #"^[\s]*[-*+]\s+"#, with: "", options: .regularExpression)
+        result = result.replacingOccurrences(of: #"^[\s]*\d+\.\s+"#, with: "", options: .regularExpression)
+
+        // Clean up extra whitespace
+        result = result.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return result
+    }
 }
 
 // MARK: - URL Validation

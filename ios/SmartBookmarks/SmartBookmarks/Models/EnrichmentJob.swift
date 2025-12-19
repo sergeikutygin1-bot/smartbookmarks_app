@@ -1,14 +1,14 @@
 import Foundation
 
 /// Response when queuing an enrichment job
-struct EnrichmentJobResponse: Codable {
+struct EnrichmentJobResponse: Sendable {
     let jobId: String
     let status: String  // "queued" | "active" | "completed" | "failed"
     let message: String
 }
 
 /// Status response when polling an enrichment job
-struct EnrichmentJobStatus: Codable {
+struct EnrichmentJobStatus: Sendable {
     let jobId: String
     let status: String  // "queued" | "active" | "completed" | "failed"
     let progress: JobProgress?
@@ -20,38 +20,33 @@ struct EnrichmentJobStatus: Codable {
 }
 
 /// Progress tracking for enrichment job
-struct JobProgress: Codable, Equatable {
-    let extraction: String  // "pending" | "in_progress" | "completed"
-    let analysis: String
-    let tagging: String
-    let embedding: String
+/// Matches backend structure: { step, message, timestamp, percentage }
+struct JobProgress: Equatable, Sendable {
+    let step: String  // "extraction" | "analysis" | "tagging" | "embedding"
+    let message: String
+    let timestamp: String
+    let percentage: Int
 
     /// Get current step description for UI
     var currentStep: String {
-        if extraction != "completed" {
-            return "Extracting content"
-        } else if analysis != "completed" {
-            return "Analyzing content"
-        } else if tagging != "completed" {
-            return "Generating tags"
-        } else if embedding != "completed" {
-            return "Creating embeddings"
-        }
-        return "Processing"
+        return message
     }
 
     /// Calculate overall progress (0.0 to 1.0)
-    var percentage: Double {
-        var completed = 0
-        let total = 4
-
-        if extraction == "completed" { completed += 1 }
-        if analysis == "completed" { completed += 1 }
-        if tagging == "completed" { completed += 1 }
-        if embedding == "completed" { completed += 1 }
-
-        return Double(completed) / Double(total)
+    var percentageDecimal: Double {
+        return Double(percentage) / 100.0
     }
+}
+
+// MARK: - Codable Conformance (nonisolated)
+
+extension EnrichmentJobResponse: Codable {
+}
+
+extension EnrichmentJobStatus: Codable {
+}
+
+extension JobProgress: Codable {
 }
 
 /// Enrichment status for UI state management

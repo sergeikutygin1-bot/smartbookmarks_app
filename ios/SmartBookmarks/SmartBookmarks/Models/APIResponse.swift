@@ -1,42 +1,62 @@
 import Foundation
 
 /// Generic API response wrapper
-struct APIResponse<T: Codable>: Codable {
+struct APIResponse<T: Sendable>: Sendable {
     let data: T
 }
 
 /// List response with pagination metadata
-struct BookmarkListResponse: Codable {
+struct BookmarkListResponse: Sendable {
     let data: [Bookmark]
-    let total: Int
+    let total: Int?
     let cursor: String?
 }
 
 /// Single bookmark response
-struct BookmarkResponse: Codable {
+struct BookmarkResponse: Sendable {
     let data: Bookmark
 }
 
 /// Search response with results and metadata
-struct SearchResponse: Codable {
+struct SearchResponse: Sendable {
     let query: String
     let results: [SearchResult]
     let metadata: SearchMetadata
 }
 
 /// Individual search result
-struct SearchResult: Codable, Identifiable {
+struct SearchResult: Identifiable, Sendable {
     let id: String
     let score: Double
     let bookmark: Bookmark?
 }
 
 /// Search metadata
-struct SearchMetadata: Codable {
+struct SearchMetadata: Sendable {
     let totalItems: Int
     let resultsCount: Int
     let semanticWeight: Double
     let minScore: Double
+}
+
+// MARK: - Codable Conformance (nonisolated)
+
+extension APIResponse: Codable where T: Codable {
+}
+
+extension BookmarkListResponse: Codable {
+}
+
+extension BookmarkResponse: Codable {
+}
+
+extension SearchResponse: Codable {
+}
+
+extension SearchResult: Codable {
+}
+
+extension SearchMetadata: Codable {
 }
 
 /// API error response

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Main bookmark model matching backend schema
-struct Bookmark: Codable, Identifiable, Equatable, Hashable {
+struct Bookmark: Codable, Identifiable, Equatable, Hashable, Sendable {
     let id: String
     var url: String
     var title: String

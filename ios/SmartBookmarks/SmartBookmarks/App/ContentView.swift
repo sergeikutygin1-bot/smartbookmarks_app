@@ -146,13 +146,6 @@ struct BookmarkRow: View, Equatable {
                 .font(.headline)
                 .lineLimit(2)
 
-            if let summary = viewModel.summary, !summary.isEmpty {
-                Text(summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
             if !viewModel.tags.isEmpty {
                 TagsRowView(tags: viewModel.tags)
             }
@@ -246,49 +239,7 @@ struct BookmarkDetailContainer: View {
                     .font(.title2.bold())
                 }
 
-                // Summary
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Summary")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        Spacer()
-
-                        // Enrich button
-                        Button(action: {
-                            Task {
-                                await viewModel.enrich()
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                if viewModel.enrichmentStatus.isLoading {
-                                    ProgressView()
-                                        .scaleEffect(0.7)
-                                } else {
-                                    Image(systemName: "sparkles")
-                                }
-                                Text(viewModel.enrichmentStatus.displayText)
-                                    .font(.caption)
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(viewModel.enrichmentStatus.isLoading)
-                    }
-
-                    TextField(
-                        "AI-generated summary will appear here...",
-                        text: Binding(
-                            get: { viewModel.bookmark.summary ?? "" },
-                            set: { viewModel.updateSummary($0) }
-                        ),
-                        axis: .vertical
-                    )
-                    .lineLimit(3...10)
-                }
-
-                // Tags
+                // Tags (moved above summary)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Tags")
                         .font(.caption)
@@ -335,6 +286,49 @@ struct BookmarkDetailContainer: View {
                         }
                         .disabled(newTagInput.trimmed.isEmpty)
                     }
+                }
+
+                Divider()
+
+                // Summary (Apple Notes-style full screen)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Summary")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        // Enrich button
+                        Button(action: {
+                            Task {
+                                await viewModel.enrich()
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                if viewModel.enrichmentStatus.isLoading {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                } else {
+                                    Image(systemName: "sparkles")
+                                }
+                                Text(viewModel.enrichmentStatus.displayText)
+                                    .font(.caption)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(viewModel.enrichmentStatus.isLoading)
+                    }
+
+                    RichTextEditor(
+                        text: Binding(
+                            get: { viewModel.bookmark.summary ?? "" },
+                            set: { viewModel.updateSummary($0) }
+                        ),
+                        placeholder: "AI-generated summary will appear here..."
+                    )
+                    .frame(minHeight: 1000)  // Extra large minimum height for more writing space
                 }
 
                 Divider()

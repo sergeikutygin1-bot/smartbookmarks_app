@@ -1,7 +1,7 @@
 import Foundation
 
 /// Result of AI enrichment process
-struct EnrichmentResult: Codable {
+struct EnrichmentResult: Codable, Sendable {
     let url: String
     let title: String
     let domain: String
@@ -11,32 +11,32 @@ struct EnrichmentResult: Codable {
     let tagging: Tagging
     let embedding: [Double]?
     let embeddedAt: Date?
-    let enrichedAt: Date
-    let modelUsed: String
+    let enrichedAt: Date?          // Made optional - backend doesn't always provide
+    let modelUsed: String?          // Made optional - backend doesn't always provide
     let processingTimeMs: Int?
 }
 
 /// Extracted content from the URL
-struct ExtractedContent: Codable {
+struct ExtractedContent: Codable, Sendable {
     let rawText: String
-    let cleanText: String
+    let cleanText: String?         // Made optional - backend may only provide rawText
     let images: [String]?
     let metadata: [String: AnyCodable]?
 }
 
 /// AI-generated analysis
-struct Analysis: Codable {
+struct Analysis: Codable, Sendable {
     let summary: String
-    let keyPoints: [String]
+    let keyPoints: [String]?       // Made optional - backend doesn't always provide
 }
 
 /// AI-generated tags
-struct Tagging: Codable {
+struct Tagging: Codable, Sendable {
     let tags: [String]
 }
 
 /// Helper for flexible JSON decoding
-struct AnyCodable: Codable {
+struct AnyCodable: Codable, @unchecked Sendable {
     let value: Any
 
     init(_ value: Any) {

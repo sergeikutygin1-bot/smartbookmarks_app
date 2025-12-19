@@ -63,15 +63,27 @@ class BookmarkDetailViewModel: ObservableObject {
 
     /// Save bookmark immediately
     func save() async {
+        print("[BookmarkDetailViewModel] save() called")
+        print("  - Bookmark ID: \(bookmark.id)")
+        print("  - Title: \(bookmark.title)")
+        print("  - Has embedding: \(bookmark.embedding != nil)")
+        print("  - ProcessedAt: \(String(describing: bookmark.processedAt))")
+
         saveStatus = .saving
         isSaving = true
 
         do {
+            print("[BookmarkDetailViewModel] Calling api.updateBookmark()...")
             bookmark = try await api.updateBookmark(bookmark)
+            print("[BookmarkDetailViewModel] Bookmark saved successfully!")
+            print("  - Response bookmark has embedding: \(bookmark.embedding != nil)")
+            print("  - Response bookmark processedAt: \(String(describing: bookmark.processedAt))")
+
             saveStatus = .saved
 
             // Notify parent
             onBookmarkUpdated?(bookmark)
+            print("[BookmarkDetailViewModel] Parent notified of bookmark update")
 
             // Note: No haptic feedback for auto-save (feels disconnected)
             // Haptics are only for immediate user actions
@@ -80,17 +92,19 @@ class BookmarkDetailViewModel: ObservableObject {
             try? await Task.sleep(for: .seconds(2))
             if case .saved = saveStatus {
                 saveStatus = .idle
+                print("[BookmarkDetailViewModel] Save status reset to idle")
             }
         } catch {
+            print("[BookmarkDetailViewModel] ERROR: Failed to save bookmark: \(error)")
             saveStatus = .error(error.localizedDescription)
             self.error = error.localizedDescription
-            print("Failed to save bookmark: \(error)")
 
             // Show error haptic only for user-initiated saves (not auto-save)
             // For now, skip haptics entirely on save errors to avoid confusion
         }
 
         isSaving = false
+        print("[BookmarkDetailViewModel] save() completed")
     }
 
     // MARK: - Enrichment
@@ -127,61 +141,92 @@ class BookmarkDetailViewModel: ObservableObject {
     /// Poll enrichment job status until completion
     private func pollEnrichmentJob(jobId: String) async {
         let startTime = Date()
+        var pollCount = 0
+
+        print("[BookmarkDetailViewModel] Starting polling for job: \(jobId)")
 
         while !Task.isCancelled {
             do {
+                pollCount += 1
+                let elapsed = Date().timeIntervalSince(startTime)
+                print("[BookmarkDetailViewModel] Poll #\(pollCount) - Elapsed: \(String(format: "%.1f", elapsed))s")
+
                 // Check if we've exceeded max polling duration
-                if Date().timeIntervalSince(startTime) > Config.maxPollingDuration {
+                if elapsed > Config.maxPollingDuration {
+                    print("[BookmarkDetailViewModel] ERROR: Polling timeout after \(Config.maxPollingDuration)s")
                     enrichmentStatus = .failed("Enrichment timed out")
                     return
                 }
 
                 // Get job status
                 let status = try await getJobStatus(jobId: jobId)
+                print("[BookmarkDetailViewModel] Job status: \(status.status)")
 
                 // Update progress
                 enrichmentProgress = status.progress
+                if let progress = status.progress {
+                    print("[BookmarkDetailViewModel] Progress: \(progress.step) - \(progress.message) (\(progress.percentage)%)")
+                }
 
                 switch status.status {
                 case "completed":
+                    print("[BookmarkDetailViewModel] ✓ Job completed!")
                     guard let result = status.result else {
+                        print("[BookmarkDetailViewModel] ERROR: No result in completed job")
                         enrichmentStatus = .failed("No result returned")
                         HapticManager.shared.error()
                         return
                     }
 
+                    print("[BookmarkDetailViewModel] Enrichment result received:")
+                    print("  - Has result: true")
+                    print("  - Title: \(result.title)")
+                    print("  - Has summary: \(!result.analysis.summary.isEmpty)")
+                    print("  - Tags count: \(result.tagging.tags.count)")
+                    print("  - Has embedding: \(result.embedding != nil)")
+
                     // Apply enrichment results
-                    await applyEnrichmentResults(result)
+                    print("[BookmarkDetailViewModel] Applying enrichment results to bookmark...")
+                    applyEnrichmentResults(result)
                     enrichmentStatus = .completed
 
                     // Haptic feedback for successful enrichment
                     HapticManager.shared.success()
 
                     // Auto-save after enrichment
+                    print("[BookmarkDetailViewModel] Saving enriched bookmark to backend...")
                     await save()
+                    print("[BookmarkDetailViewModel] Enrichment flow completed!")
                     return
 
                 case "failed":
+                    print("[BookmarkDetailViewModel] ERROR: Job failed - \(status.error ?? "Unknown error")")
                     enrichmentStatus = .failed(status.error ?? "Enrichment failed")
                     HapticManager.shared.error()
                     return
 
                 case "queued", "active":
+                    print("[BookmarkDetailViewModel] Job still processing...")
                     enrichmentStatus = .processing(jobId: jobId, progress: status.progress)
 
                     // Continue polling
+                    print("[BookmarkDetailViewModel] Sleeping for \(Config.pollingInterval)s before next poll...")
                     try await Task.sleep(for: .seconds(Config.pollingInterval))
 
                 default:
+                    print("[BookmarkDetailViewModel] ERROR: Unknown job status: \(status.status)")
                     enrichmentStatus = .failed("Unknown status: \(status.status)")
                     return
                 }
 
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else {
+                    print("[BookmarkDetailViewModel] Polling cancelled")
+                    return
+                }
+                print("[BookmarkDetailViewModel] ERROR: Failed to poll enrichment job: \(error)")
                 enrichmentStatus = .failed(error.localizedDescription)
                 self.error = error.localizedDescription
-                print("Failed to poll enrichment job: \(error)")
                 return
             }
         }
@@ -194,7 +239,18 @@ class BookmarkDetailViewModel: ObservableObject {
 
     /// Apply enrichment results to bookmark
     private func applyEnrichmentResults(_ result: EnrichmentResult) {
+        print("[BookmarkDetailViewModel] Applying enrichment results:")
+        print("  - Title: \(result.title)")
+        print("  - Domain: \(result.domain)")
+        print("  - Summary: \(result.analysis.summary.prefix(100))...")
+        print("  - Tags: \(result.tagging.tags)")
+        print("  - ContentType: \(result.contentType)")
+        print("  - Has embedding: \(result.embedding != nil)")
+        print("  - Embedding count: \(result.embedding?.count ?? 0)")
+        print("  - EmbeddedAt: \(String(describing: result.embeddedAt))")
+
         bookmark.title = result.title
+        bookmark.domain = result.domain  // Update domain with actual source
         bookmark.summary = result.analysis.summary
         bookmark.tags = result.tagging.tags
         bookmark.contentType = result.contentType
@@ -202,6 +258,14 @@ class BookmarkDetailViewModel: ObservableObject {
         bookmark.embeddedAt = result.embeddedAt
         bookmark.processedAt = Date()
         bookmark.updatedAt = Date()
+
+        print("[BookmarkDetailViewModel] Bookmark updated locally:")
+        print("  - Title: \(bookmark.title)")
+        print("  - Domain: \(bookmark.domain)")
+        print("  - Summary: \(bookmark.summary?.prefix(100) ?? "nil")...")
+        print("  - Tags: \(bookmark.tags)")
+        print("  - Has embedding: \(bookmark.embedding != nil)")
+        print("  - ProcessedAt: \(String(describing: bookmark.processedAt))")
     }
 
     // MARK: - Field Updates

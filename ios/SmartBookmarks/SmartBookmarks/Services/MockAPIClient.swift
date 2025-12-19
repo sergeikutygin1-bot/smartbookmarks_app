@@ -112,10 +112,10 @@ actor MockAPIClient {
         activeJobs[jobId] = (
             status: "queued",
             progress: JobProgress(
-                extraction: "pending",
-                analysis: "pending",
-                tagging: "pending",
-                embedding: "pending"
+                step: "queued",
+                message: "Job queued",
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                percentage: 0
             ),
             result: nil
         )
@@ -153,10 +153,12 @@ actor MockAPIClient {
 
     private func simulateEnrichmentJob(jobId: String, url: String, existingTags: [String]) async {
         do {
+            let dateFormatter = ISO8601DateFormatter()
+
             // Step 1: Extraction (0.4 seconds - faster for dev)
             activeJobs[jobId] = (
                 status: "active",
-                progress: JobProgress(extraction: "in_progress", analysis: "pending", tagging: "pending", embedding: "pending"),
+                progress: JobProgress(step: "extraction", message: "Extracting content...", timestamp: dateFormatter.string(from: Date()), percentage: 25),
                 result: nil
             )
             try await Task.sleep(for: .milliseconds(400))
@@ -164,7 +166,7 @@ actor MockAPIClient {
             // Step 2: Analysis (0.5 seconds - faster for dev)
             activeJobs[jobId] = (
                 status: "active",
-                progress: JobProgress(extraction: "completed", analysis: "in_progress", tagging: "pending", embedding: "pending"),
+                progress: JobProgress(step: "analysis", message: "Analyzing content...", timestamp: dateFormatter.string(from: Date()), percentage: 50),
                 result: nil
             )
             try await Task.sleep(for: .milliseconds(500))
@@ -172,7 +174,7 @@ actor MockAPIClient {
             // Step 3: Tagging (0.3 seconds - faster for dev)
             activeJobs[jobId] = (
                 status: "active",
-                progress: JobProgress(extraction: "completed", analysis: "completed", tagging: "in_progress", embedding: "pending"),
+                progress: JobProgress(step: "tagging", message: "Generating tags...", timestamp: dateFormatter.string(from: Date()), percentage: 75),
                 result: nil
             )
             try await Task.sleep(for: .milliseconds(300))
@@ -180,7 +182,7 @@ actor MockAPIClient {
             // Step 4: Embedding (0.3 seconds - faster for dev)
             activeJobs[jobId] = (
                 status: "active",
-                progress: JobProgress(extraction: "completed", analysis: "completed", tagging: "completed", embedding: "in_progress"),
+                progress: JobProgress(step: "embedding", message: "Creating embeddings...", timestamp: dateFormatter.string(from: Date()), percentage: 90),
                 result: nil
             )
             try await Task.sleep(for: .milliseconds(300))
@@ -217,7 +219,7 @@ actor MockAPIClient {
 
             activeJobs[jobId] = (
                 status: "completed",
-                progress: JobProgress(extraction: "completed", analysis: "completed", tagging: "completed", embedding: "completed"),
+                progress: JobProgress(step: "completed", message: "Enrichment complete", timestamp: dateFormatter.string(from: Date()), percentage: 100),
                 result: result
             )
 
