@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { loadBookmarksServer, saveBookmarksServer } from '@/lib/server-storage';
 
 export const dynamic = 'force-dynamic';
+
+const BACKEND_API = 'http://localhost:3002/api/bookmarks';
+const ENRICHMENT_API = 'http://localhost:3002/enrich';
 
 /**
  * POST /api/bookmarks/:id/enrich
@@ -15,25 +17,37 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const bookmarks = loadBookmarksServer();
-    const bookmarkIndex = bookmarks.findIndex((b) => b.id === id);
 
-    if (bookmarkIndex === -1) {
-      return NextResponse.json(
-        { error: 'Bookmark not found' },
-        { status: 404 }
-      );
+    // Get bookmark from backend
+    const bookmarkResponse = await fetch(`${BACKEND_API}/${id}`);
+
+    if (!bookmarkResponse.ok) {
+      if (bookmarkResponse.status === 404) {
+        return NextResponse.json(
+          { error: 'Bookmark not found' },
+          { status: 404 }
+        );
+      }
+      throw new Error(`Backend returned ${bookmarkResponse.status}`);
     }
 
-    const bookmark = bookmarks[bookmarkIndex];
+    const bookmarkData = await bookmarkResponse.json();
+    const bookmark = bookmarkData.data;
 
-    // Get all unique tags from user's bookmarks for consistency
+    // Get all bookmarks to extract existing tags
+    const allBookmarksResponse = await fetch(BACKEND_API);
+    if (!allBookmarksResponse.ok) {
+      throw new Error('Failed to fetch bookmarks for tag consistency');
+    }
+    const allBookmarksData = await allBookmarksResponse.json();
+    const allBookmarks = allBookmarksData.data || [];
+
     const existingTags = Array.from(
-      new Set(bookmarks.flatMap((b) => b.tags))
+      new Set(allBookmarks.flatMap((b: any) => b.tags || []))
     );
 
     // Queue the enrichment job with backend (returns immediately)
-    const queueResponse = await fetch('http://localhost:3002/enrich', {
+    const queueResponse = await fetch(ENRICHMENT_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -88,41 +102,56 @@ export async function PATCH(
     const { id } = await params;
     const enrichmentData = await request.json();
 
-    // CRITICAL: Reload bookmarks to get FRESH state before saving
-    const latestBookmarks = loadBookmarksServer();
-    const latestIndex = latestBookmarks.findIndex((b) => b.id === id);
+    // Get current bookmark state from backend
+    const bookmarkResponse = await fetch(`${BACKEND_API}/${id}`);
 
-    if (latestIndex === -1) {
-      return NextResponse.json(
-        { error: 'Bookmark was deleted during enrichment' },
-        { status: 404 }
-      );
+    if (!bookmarkResponse.ok) {
+      if (bookmarkResponse.status === 404) {
+        return NextResponse.json(
+          { error: 'Bookmark was deleted during enrichment' },
+          { status: 404 }
+        );
+      }
+      throw new Error(`Backend returned ${bookmarkResponse.status}`);
     }
 
-    const currentBookmark = latestBookmarks[latestIndex];
+    const bookmarkData = await bookmarkResponse.json();
+    const currentBookmark = bookmarkData.data;
+
     const enhancedSummary = enrichmentData.analysis?.summary || currentBookmark.summary;
 
-    // Update bookmark with enriched data, merging with current state
-    const updatedBookmark = {
-      ...currentBookmark,
+    // Prepare update payload with enriched data
+    const updatePayload = {
       title: enrichmentData.analysis?.title || enrichmentData.title || currentBookmark.title,
+      url: currentBookmark.url,
       domain: enrichmentData.domain || currentBookmark.domain,
       contentType: enrichmentData.contentType || currentBookmark.contentType,
       summary: enhancedSummary,
       tags: enrichmentData.tagging?.tags || currentBookmark.tags,
       embedding: enrichmentData.embedding || currentBookmark.embedding,
       embeddedAt: enrichmentData.embeddedAt
-        ? new Date(enrichmentData.embeddedAt)
+        ? new Date(enrichmentData.embeddedAt).toISOString()
         : currentBookmark.embeddedAt,
-      updatedAt: new Date(),
-      processedAt: new Date(),
+      processedAt: new Date().toISOString(),
     };
 
-    latestBookmarks[latestIndex] = updatedBookmark;
-    await saveBookmarksServer(latestBookmarks);
+    // Update bookmark via backend API
+    const updateResponse = await fetch(`${BACKEND_API}/${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updatePayload),
+    });
+
+    if (!updateResponse.ok) {
+      throw new Error(`Failed to update bookmark: ${updateResponse.status}`);
+    }
+
+    const updatedData = await updateResponse.json();
 
     console.log(`[Enrich Route] Saved enrichment results for bookmark: ${id}`);
-    return NextResponse.json({ data: updatedBookmark });
+    return NextResponse.json(updatedData);
   } catch (error) {
     console.error('PATCH /api/bookmarks/:id/enrich error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to save enrichment';

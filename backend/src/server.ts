@@ -15,6 +15,7 @@ import { logger } from "./services/logger";
 import { enrichmentTracker } from "./services/enrichmentTracker";
 import adminRoutes from "./routes/admin";
 import searchRoutes from "./routes/search";
+import bookmarksRoutes from "./routes/bookmarks";
 import { enrichmentQueue } from "./queues/enrichmentQueue";
 
 const app = express();
@@ -48,6 +49,9 @@ app.use("/admin", adminRoutes);
 
 // Search routes
 app.use("/search", searchRoutes);
+
+// Bookmarks CRUD routes
+app.use("/api/bookmarks", bookmarksRoutes);
 
 // Enrichment endpoint (async job-based)
 app.post("/enrich", async (req, res) => {
@@ -153,11 +157,19 @@ app.listen(PORT, () => {
   console.log("🚀 Smart Bookmarks Backend Server");
   console.log("=".repeat(60));
   console.log(`\n📍 Server running on http://localhost:${PORT}`);
-  console.log(`   Health check:     GET  http://localhost:${PORT}/health`);
-  console.log(`   Enrich (queue):   POST http://localhost:${PORT}/enrich`);
-  console.log(`   Job status:       GET  http://localhost:${PORT}/enrich/:jobId`);
-  console.log(`   Search endpoint:  POST http://localhost:${PORT}/search`);
-  console.log(`   Admin dashboard:  GET  http://localhost:${PORT}/admin`);
+  console.log(`   Health check:     GET    http://localhost:${PORT}/health`);
+  console.log(`\n📚 Bookmarks API:`);
+  console.log(`   List bookmarks:   GET    http://localhost:${PORT}/api/bookmarks`);
+  console.log(`   Get bookmark:     GET    http://localhost:${PORT}/api/bookmarks/:id`);
+  console.log(`   Create bookmark:  POST   http://localhost:${PORT}/api/bookmarks`);
+  console.log(`   Update bookmark:  PATCH  http://localhost:${PORT}/api/bookmarks/:id`);
+  console.log(`   Delete bookmark:  DELETE http://localhost:${PORT}/api/bookmarks/:id`);
+  console.log(`\n✨ Enrichment API:`);
+  console.log(`   Enrich (queue):   POST   http://localhost:${PORT}/enrich`);
+  console.log(`   Job status:       GET    http://localhost:${PORT}/enrich/:jobId`);
+  console.log(`\n🔍 Search & Admin:`);
+  console.log(`   Search endpoint:  POST   http://localhost:${PORT}/search`);
+  console.log(`   Admin dashboard:  GET    http://localhost:${PORT}/admin`);
   console.log("\n⚙️  Background worker: npm run worker");
   console.log("=".repeat(60) + "\n");
 

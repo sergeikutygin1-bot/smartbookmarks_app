@@ -46,7 +46,7 @@ export function useCreateBookmark() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data?: { url?: string; title?: string }) => bookmarksApi.create(data || {}),
+    mutationFn: (data?: { url?: string; title?: string }) => bookmarksApi.create({ url: '', ...data }),
     onMutate: async (newBookmarkData = {}) => {
       // Cancel outgoing refetches
       await queryClient.cancelQueries({ queryKey: bookmarksKeys.lists() });
