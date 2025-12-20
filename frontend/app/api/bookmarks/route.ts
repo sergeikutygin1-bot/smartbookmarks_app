@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-const BACKEND_API = 'http://localhost:3002/api/bookmarks';
+const BACKEND_API = process.env.BACKEND_URL
+  ? `${process.env.BACKEND_URL}/api/bookmarks`
+  : 'http://localhost:3002/api/bookmarks';
 
 /**
  * GET /api/bookmarks

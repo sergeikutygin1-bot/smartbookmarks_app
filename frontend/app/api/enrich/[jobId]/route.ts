@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3002';
+
 /**
  * GET /api/enrich/:jobId
  * Check the status of an enrichment job
@@ -16,7 +18,7 @@ export async function GET(
     const { jobId } = await params;
 
     // Proxy request to backend enrichment service
-    const statusResponse = await fetch(`http://localhost:3002/enrich/${jobId}`, {
+    const statusResponse = await fetch(`${BACKEND_URL}/enrich/${jobId}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });

@@ -34,12 +34,20 @@ app.use(generalRateLimit);
 // Request logging middleware - filter out noisy admin routes and polling requests
 app.use((req, res, next) => {
   // Skip logging for:
-  // - Admin dashboard polling and SSE heartbeats
+  // - Admin dashboard polling (happens every few seconds)
   // - Job status polling (GET /enrich/:jobId) - these happen every 2 seconds during enrichment
-  const skipPaths = ["/admin/stats", "/admin/enrichments", "/admin/logs/stream", "/health"];
+  // - Regular API endpoint calls (too noisy, use INFO logs for important events instead)
+  const skipPaths = [
+    "/admin/stats",
+    "/admin/enrichments",
+    "/admin/jobs",  // Admin job polling
+    "/admin/logs/stream",
+    "/health"
+  ];
   const isJobStatusPolling = req.method === 'GET' && req.path.startsWith('/enrich/enrich-');
+  const isApiEndpoint = req.path.startsWith('/api/bookmarks');
 
-  if (!skipPaths.includes(req.path) && !isJobStatusPolling) {
+  if (!skipPaths.includes(req.path) && !isJobStatusPolling && !isApiEndpoint) {
     logger.debug("server", `${req.method} ${req.path}`);
   }
   next();

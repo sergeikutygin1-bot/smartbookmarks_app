@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-const BACKEND_API = 'http://localhost:3002/api/bookmarks';
-const ENRICHMENT_API = 'http://localhost:3002/enrich';
+const BACKEND_API = process.env.BACKEND_URL
+  ? `${process.env.BACKEND_URL}/api/bookmarks`
+  : 'http://localhost:3002/api/bookmarks';
+const ENRICHMENT_API = process.env.BACKEND_URL
+  ? `${process.env.BACKEND_URL}/enrich`
+  : 'http://localhost:3002/enrich';
 
 /**
  * POST /api/bookmarks/:id/enrich
