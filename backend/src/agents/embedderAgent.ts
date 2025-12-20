@@ -1,4 +1,5 @@
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { createCache } from "../services/cache";
 
 /**
  * Embedder Agent - Generates vector embeddings for semantic search
@@ -7,12 +8,8 @@ import { OpenAIEmbeddings } from "@langchain/openai";
  * - Uses OpenAI text-embedding-3-small (1536 dimensions)
  * - Batch processing support for efficiency
  * - Error handling with graceful degradation
- * - Caching to avoid redundant API calls
+ * - Redis-based caching to avoid redundant API calls (persistent across restarts)
  */
-
-const EMBEDDING_CACHE = new Map<string, number[]>();
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const CACHE_TIMESTAMPS = new Map<string, number>();
 
 export interface EmbeddingOptions {
   text: string;
@@ -26,6 +23,7 @@ export interface BatchEmbeddingOptions {
 
 export class EmbedderAgent {
   private embeddings: OpenAIEmbeddings;
+  private cache = createCache('embeddings:', 86400); // 24hr TTL in Redis
 
   constructor() {
     // Initialize OpenAI embeddings with text-embedding-3-small model
@@ -37,7 +35,7 @@ export class EmbedderAgent {
       timeout: 30000, // 30 second timeout
     });
 
-    console.log("[EmbedderAgent] Initialized with text-embedding-3-small");
+    console.log("[EmbedderAgent] Initialized with text-embedding-3-small and Redis cache");
   }
 
   /**
@@ -51,11 +49,11 @@ export class EmbedderAgent {
       throw new Error("Cannot generate embedding for empty text");
     }
 
-    // Check cache
+    // Check Redis cache
     if (useCache) {
-      const cached = this.getCached(text);
+      const cached = await this.getCached(text);
       if (cached) {
-        console.log("[EmbedderAgent] Using cached embedding");
+        console.log("[EmbedderAgent] Cache hit for embedding");
         return cached;
       }
     }
@@ -67,9 +65,9 @@ export class EmbedderAgent {
 
       const embedding = await this.embeddings.embedQuery(text);
 
-      // Cache the result
+      // Cache the result in Redis
       if (useCache) {
-        this.cacheEmbedding(text, embedding);
+        await this.cacheEmbedding(text, embedding);
       }
 
       console.log(
@@ -103,21 +101,22 @@ export class EmbedderAgent {
     }
 
     try {
-      // Check cache for each text
+      // Check Redis cache for each text
       const results: number[][] = [];
       const uncachedTexts: string[] = [];
       const uncachedIndices: number[] = [];
 
       if (useCache) {
-        validTexts.forEach((text, index) => {
-          const cached = this.getCached(text);
+        for (let index = 0; index < validTexts.length; index++) {
+          const text = validTexts[index];
+          const cached = await this.getCached(text);
           if (cached) {
             results[index] = cached;
           } else {
             uncachedTexts.push(text);
             uncachedIndices.push(index);
           }
-        });
+        }
 
         if (uncachedTexts.length === 0) {
           console.log(
@@ -136,15 +135,15 @@ export class EmbedderAgent {
 
       // Cache and assign results
       if (useCache) {
-        embeddings.forEach((embedding, i) => {
+        for (let i = 0; i < embeddings.length; i++) {
           const originalIndex = uncachedIndices[i];
-          results[originalIndex] = embedding;
-          this.cacheEmbedding(uncachedTexts[i], embedding);
-        });
+          results[originalIndex] = embeddings[i];
+          await this.cacheEmbedding(uncachedTexts[i], embeddings[i]);
+        }
       } else {
-        textsToEmbed.forEach((text, i) => {
-          this.cacheEmbedding(text, embeddings[i]);
-        });
+        for (let i = 0; i < textsToEmbed.length; i++) {
+          await this.cacheEmbedding(textsToEmbed[i], embeddings[i]);
+        }
         return embeddings;
       }
 
@@ -159,34 +158,19 @@ export class EmbedderAgent {
   }
 
   /**
-   * Get cached embedding if available and not expired
+   * Get cached embedding from Redis if available
    */
-  private getCached(text: string): number[] | null {
+  private async getCached(text: string): Promise<number[] | null> {
     const cacheKey = this.getCacheKey(text);
-    const cached = EMBEDDING_CACHE.get(cacheKey);
-
-    if (!cached) {
-      return null;
-    }
-
-    // Check if cache is expired
-    const timestamp = CACHE_TIMESTAMPS.get(cacheKey);
-    if (timestamp && Date.now() - timestamp > CACHE_TTL_MS) {
-      EMBEDDING_CACHE.delete(cacheKey);
-      CACHE_TIMESTAMPS.delete(cacheKey);
-      return null;
-    }
-
-    return cached;
+    return await this.cache.get<number[]>(cacheKey);
   }
 
   /**
-   * Cache an embedding
+   * Cache an embedding in Redis
    */
-  private cacheEmbedding(text: string, embedding: number[]): void {
+  private async cacheEmbedding(text: string, embedding: number[]): Promise<void> {
     const cacheKey = this.getCacheKey(text);
-    EMBEDDING_CACHE.set(cacheKey, embedding);
-    CACHE_TIMESTAMPS.set(cacheKey, Date.now());
+    await this.cache.set(cacheKey, embedding); // Uses default 24hr TTL
   }
 
   /**
@@ -199,24 +183,18 @@ export class EmbedderAgent {
   }
 
   /**
-   * Clear the embedding cache
+   * Clear the embedding cache in Redis
    */
-  clearCache(): void {
-    EMBEDDING_CACHE.clear();
-    CACHE_TIMESTAMPS.clear();
-    console.log("[EmbedderAgent] Cache cleared");
+  async clearCache(): Promise<void> {
+    await this.cache.clear();
+    console.log("[EmbedderAgent] Redis cache cleared");
   }
 
   /**
-   * Get cache statistics
+   * Get cache statistics from Redis
    */
-  getCacheStats(): { size: number; oldestEntry: number | null } {
-    const timestamps = Array.from(CACHE_TIMESTAMPS.values());
-    return {
-      size: EMBEDDING_CACHE.size,
-      oldestEntry:
-        timestamps.length > 0 ? Math.min(...timestamps) : null,
-    };
+  async getCacheStats() {
+    return await this.cache.getStats();
   }
 }
 

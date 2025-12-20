@@ -24,3 +24,8 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+/src/generated/prisma
+
+# Data directory (temporary job files)
+.data/

@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Bookmark } from "@/store/bookmarksStore";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 import { X } from "lucide-react";
-import { useDeleteBookmark } from "@/hooks/useBookmarks";
+import { useDeleteBookmark, bookmarksKeys } from "@/hooks/useBookmarks";
+import { bookmarksApi } from "@/lib/api";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { useVisibleTags } from "@/hooks/useVisibleTags";
 
@@ -17,6 +19,7 @@ interface BookmarkListItemProps {
 }
 
 export function BookmarkListItem({ bookmark, isSelected, onClick }: BookmarkListItemProps) {
+  const queryClient = useQueryClient();
   const deleteMutation = useDeleteBookmark();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const tagsContainerRef = useRef<HTMLDivElement>(null);
@@ -29,6 +32,15 @@ export function BookmarkListItem({ bookmark, isSelected, onClick }: BookmarkList
 
   // Check if this is an empty bookmark (no URL filled in yet)
   const isEmpty = !bookmark.url || bookmark.url === '' || bookmark.title === 'Untitled bookmark';
+
+  // Prefetch bookmark details on hover - data ready before click
+  const handleMouseEnter = () => {
+    queryClient.prefetchQuery({
+      queryKey: bookmarksKeys.detail(bookmark.id),
+      queryFn: () => bookmarksApi.getById(bookmark.id),
+      staleTime: 1000 * 60 * 5, // Don't refetch if recent
+    });
+  };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent selecting the bookmark when clicking delete
@@ -44,6 +56,7 @@ export function BookmarkListItem({ bookmark, isSelected, onClick }: BookmarkList
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
+      onMouseEnter={handleMouseEnter}
       className={`
         relative w-full group
         border-l-2 transition-all duration-200

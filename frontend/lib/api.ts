@@ -1,6 +1,82 @@
 import { Bookmark } from '@/store/bookmarksStore';
+import { toast } from 'sonner';
 
 const API_BASE = '/api';
+
+/**
+ * Custom error for rate limiting (429 responses)
+ */
+export class RateLimitError extends Error {
+  retryAfter: number;
+  limit?: number;
+  window?: string;
+
+  constructor(message: string, retryAfter: number, limit?: number, window?: string) {
+    super(message);
+    this.name = 'RateLimitError';
+    this.retryAfter = retryAfter;
+    this.limit = limit;
+    this.window = window;
+  }
+}
+
+/**
+ * Helper to handle API responses and extract errors
+ */
+async function handleResponse(response: Response): Promise<any> {
+  // Handle rate limiting (429 Too Many Requests)
+  if (response.status === 429) {
+    const data = await response.json().catch(() => ({
+      message: 'Rate limit exceeded. Please try again later.',
+      retryAfter: 60,
+    }));
+
+    const retryAfter = data.retryAfter || parseInt(response.headers.get('Retry-After') || '60');
+    const message = data.message || 'Too many requests. Please slow down.';
+    const limit = data.limit;
+    const window = data.window;
+
+    // Show user-friendly toast notification
+    const retryMinutes = Math.ceil(retryAfter / 60);
+    const retrySeconds = retryAfter % 60;
+    const timeMsg = retryMinutes > 0
+      ? `${retryMinutes} minute${retryMinutes > 1 ? 's' : ''}`
+      : `${retrySeconds} second${retrySeconds !== 1 ? 's' : ''}`;
+
+    toast.error(`Rate limit exceeded`, {
+      description: `Please try again in ${timeMsg}.`,
+      duration: 5000,
+    });
+
+    throw new RateLimitError(message, retryAfter, limit, window);
+  }
+
+  // Handle other errors
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({
+      message: `Request failed with status ${response.status}`,
+    }));
+    throw new Error(error.error || error.message || 'Request failed');
+  }
+
+  return response.json();
+}
+
+/**
+ * Transform backend bookmark data to frontend format
+ * Converts nested tag objects to simple string array
+ */
+function transformBookmark(bookmark: any): any {
+  return {
+    ...bookmark,
+    tags: bookmark.tags?.map((t: any) =>
+      typeof t === 'string' ? t : t.tag?.name || t.name || String(t)
+    ) || [],
+    createdAt: new Date(bookmark.createdAt),
+    updatedAt: new Date(bookmark.updatedAt),
+    processedAt: bookmark.processedAt ? new Date(bookmark.processedAt) : null,
+  };
+}
 
 /**
  * Retry utility with exponential backoff
@@ -30,6 +106,12 @@ async function retryWithBackoff<T>(
       // Don't retry URL validation errors (retrying won't help if URL doesn't exist)
       if (lastError.name === 'URLValidationError') {
         console.log(`[Retry] URL validation error, not retrying`);
+        throw lastError;
+      }
+
+      // Don't retry rate limit errors (user needs to wait)
+      if (lastError instanceof RateLimitError) {
+        console.log(`[Retry] Rate limit error, not retrying`);
         throw lastError;
       }
 
@@ -108,19 +190,10 @@ export const bookmarksApi = {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch bookmarks');
-    }
+    const json = await handleResponse(response);
 
-    const json = await response.json();
-
-    // Convert date strings back to Date objects
-    return json.data.map((bookmark: any) => ({
-      ...bookmark,
-      createdAt: new Date(bookmark.createdAt),
-      updatedAt: new Date(bookmark.updatedAt),
-      processedAt: bookmark.processedAt ? new Date(bookmark.processedAt) : null,
-    }));
+    // Transform bookmarks (handles dates and tag structure)
+    return json.data.map(transformBookmark);
   },
 
   /**
@@ -132,18 +205,9 @@ export const bookmarksApi = {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to fetch bookmark');
-    }
+    const json = await handleResponse(response);
 
-    const json = await response.json();
-
-    return {
-      ...json.data,
-      createdAt: new Date(json.data.createdAt),
-      updatedAt: new Date(json.data.updatedAt),
-      processedAt: json.data.processedAt ? new Date(json.data.processedAt) : null,
-    };
+    return transformBookmark(json.data);
   },
 
   /**
@@ -156,19 +220,9 @@ export const bookmarksApi = {
       body: JSON.stringify(data),
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to create bookmark');
-    }
+    const json = await handleResponse(response);
 
-    const json = await response.json();
-
-    return {
-      ...json.data,
-      createdAt: new Date(json.data.createdAt),
-      updatedAt: new Date(json.data.updatedAt),
-      processedAt: json.data.processedAt ? new Date(json.data.processedAt) : null,
-    };
+    return transformBookmark(json.data);
   },
 
   /**
@@ -181,18 +235,9 @@ export const bookmarksApi = {
       body: JSON.stringify(data),
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to update bookmark');
-    }
+    const json = await handleResponse(response);
 
-    const json = await response.json();
-
-    return {
-      ...json.data,
-      createdAt: new Date(json.data.createdAt),
-      updatedAt: new Date(json.data.updatedAt),
-      processedAt: json.data.processedAt ? new Date(json.data.processedAt) : null,
-    };
+    return transformBookmark(json.data);
   },
 
   /**
@@ -204,9 +249,7 @@ export const bookmarksApi = {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to delete bookmark');
-    }
+    await handleResponse(response);
   },
 
   /**
@@ -276,40 +319,28 @@ export const bookmarksApi = {
         signal,
       });
 
-      if (!queueResponse.ok) {
-        const error = await queueResponse.json().catch(() => ({}));
-        throw new Error(error.error || 'Failed to queue enrichment');
-      }
-
-      const { jobId } = await queueResponse.json();
+      const queueData = await handleResponse(queueResponse);
+      const { jobId } = queueData;
       console.log(`[API] Job queued: ${jobId} for bookmark: ${id}`);
 
       // Step 2: Poll for job completion (CLIENT-SIDE polling in browser)
       const result = await this.pollJobStatus(jobId, signal);
 
-      // Step 3: Save enrichment results to bookmark
-      console.log(`[API] Saving enrichment results for: ${id}`);
+      // Step 3: Fetch the updated bookmark from database
+      // Note: Worker already saved all enrichment results (title, summary, tags, embedding)
+      // So we just need to fetch the updated bookmark instead of PATCHing again
+      console.log(`[API] Fetching updated bookmark: ${id}`);
 
-      const saveResponse = await fetch(`${API_BASE}/bookmarks/${id}/enrich`, {
-        method: 'PATCH',
+      const fetchResponse = await fetch(`${API_BASE}/bookmarks/${id}`, {
+        method: 'GET',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(result),
         signal,
       });
 
-      if (!saveResponse.ok) {
-        throw new Error('Failed to save enrichment results');
-      }
-
-      const json = await saveResponse.json();
+      const json = await handleResponse(fetchResponse);
       console.log(`[API] Enrichment completed successfully for: ${id}`);
 
-      return {
-        ...json.data,
-        createdAt: new Date(json.data.createdAt),
-        updatedAt: new Date(json.data.updatedAt),
-        processedAt: json.data.processedAt ? new Date(json.data.processedAt) : null,
-      };
+      return transformBookmark(json.data);
     }, 3, 1000); // 3 retries with 1s initial delay (total: 4 attempts with 1s, 2s, 4s backoff)
   },
 
@@ -319,69 +350,30 @@ export const bookmarksApi = {
    */
   async searchHybrid(
     query: string,
-    bookmarks: Bookmark[],
     options?: {
-      topK?: number;
-      semanticWeight?: number;
-      minScore?: number;
+      limit?: number;
+      mode?: 'keyword' | 'semantic' | 'hybrid';
     }
-  ): Promise<{ bookmarks: Bookmark[]; results: any[] }> {
-    // If no query or no bookmarks, return empty
-    if (!query.trim() || bookmarks.length === 0) {
-      return { bookmarks: [], results: [] };
+  ): Promise<Bookmark[]> {
+    // If no query, return empty
+    if (!query.trim()) {
+      return [];
     }
 
-    // Prepare searchable items (include only necessary fields for backend)
-    const searchableItems = bookmarks.map((b) => ({
-      id: b.id,
-      title: b.title,
-      tags: b.tags,
-      summary: b.summary || '',
-      embedding: b.embedding,
-    }));
-
-    // Call backend search endpoint
-    const response = await fetch('http://localhost:3002/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query,
-        bookmarks: searchableItems,
-        topK: options?.topK || 10,
-        semanticWeight: options?.semanticWeight || 0.6,
-        minScore: options?.minScore || 0.3,
-      }),
+    // Build query parameters
+    const params = new URLSearchParams({
+      q: query,
+      mode: options?.mode || 'hybrid',
+      limit: String(options?.limit || 50),
     });
 
-    if (!response.ok) {
-      console.error('Hybrid search failed, falling back to keyword search');
-      // Fallback to keyword-only filtering
-      const filtered = bookmarks.filter((b) =>
-        b.title.toLowerCase().includes(query.toLowerCase()) ||
-        b.tags.some((t) => t.toLowerCase().includes(query.toLowerCase()))
-      );
-      return {
-        bookmarks: filtered,
-        results: filtered.map((b) => ({
-          id: b.id,
-          hybridScore: 0.5,
-          keywordScore: 0.5,
-          semanticScore: 0,
-        })),
-      };
-    }
+    // Call backend search endpoint with GET request
+    const response = await fetch(`http://localhost:3002/search?${params}`);
 
-    const json = await response.json();
+    const json = await handleResponse(response);
 
-    // Reorder bookmarks based on search results
-    const bookmarkMap = new Map(bookmarks.map((b) => [b.id, b]));
-    const rankedBookmarks = json.results
-      .map((result: any) => bookmarkMap.get(result.id))
-      .filter((b): b is Bookmark => b !== undefined);
-
-    return {
-      bookmarks: rankedBookmarks,
-      results: json.results,
-    };
+    // Backend returns { data: [...], metadata: {...} }
+    // Transform bookmarks (handles dates and tag structure)
+    return (json.data || []).map(transformBookmark);
   },
 };

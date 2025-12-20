@@ -170,11 +170,19 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     }
 
     const timer = setTimeout(() => {
+      // Normalize tags for comparison (ensure they're strings and sorted)
+      const normalizedLocalTags = tags
+        .map(t => typeof t === 'string' ? t : (t?.name || String(t)))
+        .sort();
+      const normalizedBookmarkTags = bookmark.tags
+        .map(t => typeof t === 'string' ? t : (t?.name || String(t)))
+        .sort();
+
       const hasChanges =
         title !== bookmark.title ||
         url !== bookmark.url ||
         summary !== bookmark.summary ||
-        JSON.stringify(tags) !== JSON.stringify(bookmark.tags);
+        JSON.stringify(normalizedLocalTags) !== JSON.stringify(normalizedBookmarkTags);
 
       if (hasChanges) {
         updateMutation.mutate({

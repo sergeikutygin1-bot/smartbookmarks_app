@@ -1,7 +1,12 @@
 import express, { Request, Response } from 'express';
-import * as bookmarkStorage from '../services/bookmarkStorage';
+import { bookmarkRepository, invalidateBookmarkCaches } from '../repositories/bookmarkRepository';
+import { invalidateSearchCaches } from './search';
+import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
+
+// Apply auth middleware to all routes
+router.use(authMiddleware);
 
 /**
  * GET /api/bookmarks
@@ -9,17 +14,15 @@ const router = express.Router();
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { q, type, source, dateFrom, dateTo } = req.query;
+    const userId = req.user!.id;
+    const { cursor, limit, type, status } = req.query;
 
-    const filters = {
-      query: q as string | undefined,
-      type: type as string | undefined,
-      source: source as string | undefined,
-      dateFrom: dateFrom ? new Date(dateFrom as string) : undefined,
-      dateTo: dateTo ? new Date(dateTo as string) : undefined,
-    };
-
-    const bookmarks = await bookmarkStorage.getBookmarks(filters);
+    const bookmarks = await bookmarkRepository.findByUserId(userId, {
+      cursor: cursor as string,
+      limit: limit ? parseInt(limit as string) : undefined,
+      contentType: type as string,
+      status: status as string,
+    });
 
     res.json({ data: bookmarks });
   } catch (error) {
@@ -37,8 +40,10 @@ router.get('/', async (req: Request, res: Response) => {
  */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
+    const userId = req.user!.id;
     const { id } = req.params;
-    const bookmark = await bookmarkStorage.getBookmarkById(id);
+
+    const bookmark = await bookmarkRepository.findById(id, userId);
 
     if (!bookmark) {
       return res.status(404).json({
@@ -64,11 +69,10 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   console.log('📝 POST /api/bookmarks received');
   console.log('Request body:', JSON.stringify(req.body, null, 2));
-  console.log('Content-Type:', req.headers['content-type']);
 
   try {
+    const userId = req.user!.id;
     const { url, title } = req.body;
-    console.log(`Extracted - url: "${url}", title: "${title}"`);
 
     // Validate request (allow empty URL for new bookmarks)
     if (url === undefined) {
@@ -80,8 +84,16 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     console.log('✅ Creating bookmark with url:', url);
-    const bookmark = await bookmarkStorage.createBookmark({ url, title });
+    const bookmark = await bookmarkRepository.create({
+      userId,
+      url,
+      title,
+    });
     console.log('✅ Bookmark created successfully:', bookmark.id);
+
+    // Invalidate caches
+    await invalidateBookmarkCaches(userId);
+    await invalidateSearchCaches(userId);
 
     res.status(201).json({ data: bookmark });
   } catch (error) {
@@ -95,18 +107,20 @@ router.post('/', async (req: Request, res: Response) => {
 
 /**
  * PATCH /api/bookmarks/:id
- * Update an existing bookmark
+ * Update an existing bookmark (AUTO-SAVE)
  */
 router.patch('/:id', async (req: Request, res: Response) => {
   try {
+    const userId = req.user!.id;
     const { id } = req.params;
     const updates = req.body;
 
-    // Don't allow updating id, createdAt
+    // Don't allow updating id, createdAt, userId
     delete updates.id;
     delete updates.createdAt;
+    delete updates.userId;
 
-    const bookmark = await bookmarkStorage.updateBookmark(id, updates);
+    const bookmark = await bookmarkRepository.update(id, userId, updates);
 
     if (!bookmark) {
       return res.status(404).json({
@@ -114,6 +128,10 @@ router.patch('/:id', async (req: Request, res: Response) => {
         message: `No bookmark found with ID: ${id}`
       });
     }
+
+    // Invalidate caches
+    await invalidateBookmarkCaches(userId);
+    await invalidateSearchCaches(userId);
 
     res.json({ data: bookmark });
   } catch (error) {
@@ -131,15 +149,21 @@ router.patch('/:id', async (req: Request, res: Response) => {
  */
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
+    const userId = req.user!.id;
     const { id } = req.params;
-    const success = await bookmarkStorage.deleteBookmark(id);
 
-    if (!success) {
+    const result = await bookmarkRepository.delete(id, userId);
+
+    if (result.count === 0) {
       return res.status(404).json({
         error: 'Bookmark not found',
         message: `No bookmark found with ID: ${id}`
       });
     }
+
+    // Invalidate caches
+    await invalidateBookmarkCaches(userId);
+    await invalidateSearchCaches(userId);
 
     res.status(204).send();
   } catch (error) {

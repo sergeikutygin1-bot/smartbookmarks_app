@@ -1,71 +1,125 @@
-import { Router, Request, Response } from "express";
-import { hybridSearch, type SearchableItem } from "../services/vectorSearch";
+import { Router, Request, Response } from 'express';
+import { bookmarkRepository } from '../repositories/bookmarkRepository';
+import { authMiddleware } from '../middleware/auth';
+import { generateEmbedding } from '../services/embeddings';
+import { createCache } from '../services/cache';
 
 const router = Router();
 
+// Redis caches for search optimization
+const searchEmbeddingCache = createCache('search-embeddings:', 600); // 10min TTL
+const searchResultsCache = createCache('search-results:', 600); // 10min TTL
+
+// Apply auth middleware
+router.use(authMiddleware);
+
 /**
- * POST /search
- * Perform hybrid search across bookmarks
+ * GET /api/search?q=query&mode=keyword|semantic|hybrid
+ * Perform search across user's bookmarks
  *
- * Body:
- * - query: string (required) - Search query
- * - bookmarks: SearchableItem[] (required) - Array of bookmarks to search
- * - topK: number (optional) - Number of results to return (default: 10)
- * - semanticWeight: number (optional) - Weight for semantic vs keyword (0-1, default: 0.6)
- * - minScore: number (optional) - Minimum score threshold (default: 0.1)
+ * Query params:
+ * - q: string (required) - Search query
+ * - mode: 'keyword' | 'semantic' | 'hybrid' (optional, default: 'hybrid')
+ * - limit: number (optional, default: 20)
  *
  * Response:
- * - results: Array of bookmark IDs with scores
+ * - data: Array of bookmark results with scores
  */
-router.post("/", async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const {
-      query,
-      bookmarks,
-      topK = 10,
-      semanticWeight = 0.6,
-      minScore = 0.1,
-    } = req.body;
+    const userId = req.user!.id;
+    const { q, mode = 'hybrid', limit } = req.query;
 
-    // Validation
-    if (!query || typeof query !== "string") {
+    if (!q || typeof q !== 'string') {
       return res.status(400).json({
-        error: "Missing or invalid query parameter",
+        error: 'Query parameter required',
+        message: 'Please provide a search query using the "q" parameter'
       });
     }
 
-    if (!Array.isArray(bookmarks)) {
-      return res.status(400).json({
-        error: "Missing or invalid bookmarks array",
-      });
+    const searchLimit = limit ? parseInt(limit as string) : 20;
+
+    // Check results cache first
+    const resultsCacheKey = `${userId}:${q}:${mode}:${searchLimit}`;
+    const cachedResults = await searchResultsCache.get(resultsCacheKey);
+
+    if (cachedResults) {
+      console.log(`[Search] Cache hit for results: ${q.substring(0, 50)}`);
+      return res.json(cachedResults);
     }
 
-    // Perform hybrid search
-    const results = await hybridSearch({
-      query: query.trim(),
-      items: bookmarks,
-      topK,
-      semanticWeight,
-      minScore,
-    });
+    let results;
 
-    res.json({
-      query,
-      results,
+    switch (mode) {
+      case 'keyword':
+        results = await bookmarkRepository.searchKeyword(userId, q, searchLimit);
+        break;
+
+      case 'semantic': {
+        // Check embedding cache
+        const embeddingCacheKey = q.toLowerCase().trim();
+        let embedding = await searchEmbeddingCache.get<number[]>(embeddingCacheKey);
+
+        if (!embedding) {
+          console.log(`[Search] Generating embedding for: ${q.substring(0, 50)}`);
+          embedding = await generateEmbedding(q);
+          await searchEmbeddingCache.set(embeddingCacheKey, embedding, 600);
+        } else {
+          console.log(`[Search] Cache hit for embedding: ${q.substring(0, 50)}`);
+        }
+
+        results = await bookmarkRepository.searchSemantic(userId, embedding, searchLimit);
+        break;
+      }
+
+      case 'hybrid':
+      default: {
+        // Check embedding cache
+        const embeddingCacheKey = q.toLowerCase().trim();
+        let embedding = await searchEmbeddingCache.get<number[]>(embeddingCacheKey);
+
+        if (!embedding) {
+          console.log(`[Search] Generating embedding for: ${q.substring(0, 50)}`);
+          embedding = await generateEmbedding(q);
+          await searchEmbeddingCache.set(embeddingCacheKey, embedding, 600);
+        } else {
+          console.log(`[Search] Cache hit for embedding: ${q.substring(0, 50)}`);
+        }
+
+        results = await bookmarkRepository.searchHybrid(userId, q, embedding, searchLimit);
+        break;
+      }
+    }
+
+    const response = {
+      data: results,
       metadata: {
-        totalItems: bookmarks.length,
+        query: q,
+        mode,
         resultsCount: results.length,
-        semanticWeight,
-        minScore,
-      },
-    });
+      }
+    };
+
+    // Cache the results
+    await searchResultsCache.set(resultsCacheKey, response, 600);
+
+    res.json(response);
   } catch (error) {
-    console.error("[SearchRoute] Search failed:", error);
+    console.error('Search failed:', error);
     res.status(500).json({
-      error: "Search failed",
-      message: error instanceof Error ? error.message : String(error),
+      error: 'Search failed',
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
+
+/**
+ * Invalidate search caches for a specific user
+ * Called when user's bookmarks are created/updated/deleted
+ */
+export async function invalidateSearchCaches(userId: string): Promise<void> {
+  await searchResultsCache.clear(`${userId}:*`);
+  console.log(`[Search] Invalidated search caches for user: ${userId}`);
+}
 
 export default router;

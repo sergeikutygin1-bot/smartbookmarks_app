@@ -17,6 +17,9 @@ import adminRoutes from "./routes/admin";
 import searchRoutes from "./routes/search";
 import bookmarksRoutes from "./routes/bookmarks";
 import { enrichmentQueue } from "./queues/enrichmentQueue";
+import { authMiddleware } from "./middleware/auth";
+import { enrichmentRateLimit, generalRateLimit, searchRateLimit } from "./middleware/rateLimiter";
+import { checkDailyBudget } from "./middleware/costControl";
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -24,6 +27,9 @@ const PORT = process.env.PORT || 3002;
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // Increase limit for vector embeddings
+
+// Global rate limiting (60 req/min authenticated, 100 req/min unauthenticated)
+app.use(generalRateLimit);
 
 // Request logging middleware - filter out noisy admin routes and polling requests
 app.use((req, res, next) => {
@@ -47,15 +53,16 @@ app.get("/health", (req, res) => {
 // Admin dashboard routes
 app.use("/admin", adminRoutes);
 
-// Search routes
-app.use("/search", searchRoutes);
+// Search routes (with dedicated rate limit: 30 req/min)
+app.use("/search", searchRateLimit, searchRoutes);
 
 // Bookmarks CRUD routes
 app.use("/api/bookmarks", bookmarksRoutes);
 
 // Enrichment endpoint (async job-based)
-app.post("/enrich", async (req, res) => {
-  const { url, userTitle, userSummary, userTags, existingTags = [] } = req.body;
+// Rate limits: 10/hour, 50/day per user + $10/day OpenAI budget
+app.post("/enrich", authMiddleware, enrichmentRateLimit, checkDailyBudget, async (req, res) => {
+  const { url, userTitle, userSummary, userTags, existingTags = [], bookmarkId } = req.body;
 
   if (!url) {
     return res.status(400).json({ error: "URL is required" });
@@ -71,6 +78,8 @@ app.post("/enrich", async (req, res) => {
       userSummary,
       userTags,
       existingTags,
+      bookmarkId,
+      userId: req.user!.id,
     });
 
     logger.info("server", `Job queued: ${job.id}`);

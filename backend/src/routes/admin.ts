@@ -147,9 +147,38 @@ router.get("/stats", async (req: Request, res: Response) => {
   const jobStorage = getJobStorage();
   const jobStats = await jobStorage.getStats();
 
-  // Get cache statistics from embedder agent
+  // Get cache statistics from all Redis caches
   const embedderAgent = getEmbedderAgent();
-  const cacheStats = await embedderAgent.getCacheStats();
+  const embeddingsCacheStats = await embedderAgent.getCacheStats();
+
+  // Import the cache instances
+  const { createCache } = await import('../services/cache');
+  const searchEmbeddingsCache = createCache('search-embeddings:', 600);
+  const searchResultsCache = createCache('search-results:', 600);
+  const bookmarksCache = createCache('bookmarks:', 300);
+
+  const [searchEmbeddingsStats, searchResultsStats, bookmarksStats] = await Promise.all([
+    searchEmbeddingsCache.getStats(),
+    searchResultsCache.getStats(),
+    bookmarksCache.getStats(),
+  ]);
+
+  const cacheStats = {
+    embeddings: embeddingsCacheStats,
+    searchEmbeddings: searchEmbeddingsStats,
+    searchResults: searchResultsStats,
+    bookmarks: bookmarksStats,
+    total: {
+      size: embeddingsCacheStats.size + searchEmbeddingsStats.size + searchResultsStats.size + bookmarksStats.size,
+      hits: embeddingsCacheStats.hits + searchEmbeddingsStats.hits + searchResultsStats.hits + bookmarksStats.hits,
+      misses: embeddingsCacheStats.misses + searchEmbeddingsStats.misses + searchResultsStats.misses + bookmarksStats.misses,
+      hitRate: 0,
+    }
+  };
+
+  // Calculate total hit rate
+  const totalRequests = cacheStats.total.hits + cacheStats.total.misses;
+  cacheStats.total.hitRate = totalRequests > 0 ? (cacheStats.total.hits / totalRequests * 100) : 0;
 
   // Convert job stats to enrichment stats format for backward compatibility
   const enrichmentStats = {
@@ -189,13 +218,38 @@ router.post("/enrichments/clear", (req: Request, res: Response) => {
   res.json({ message: "Enrichment history cleared" });
 });
 
-// Get cache statistics
+// Get cache statistics from all Redis caches
 router.get("/cache/stats", async (req: Request, res: Response) => {
   const embedderAgent = getEmbedderAgent();
-  const cacheStats = await embedderAgent.getCacheStats();
+  const embeddingsCacheStats = await embedderAgent.getCacheStats();
+
+  // Import the cache instances from search and bookmarks
+  const { createCache } = await import('../services/cache');
+
+  // Create temporary cache instances to get stats
+  const searchEmbeddingsCache = createCache('search-embeddings:', 600);
+  const searchResultsCache = createCache('search-results:', 600);
+  const bookmarksCache = createCache('bookmarks:', 300);
+
+  const [searchEmbeddingsStats, searchResultsStats, bookmarksStats] = await Promise.all([
+    searchEmbeddingsCache.getStats(),
+    searchResultsCache.getStats(),
+    bookmarksCache.getStats(),
+  ]);
 
   res.json({
-    cache: cacheStats,
+    embeddings: embeddingsCacheStats,
+    searchEmbeddings: searchEmbeddingsStats,
+    searchResults: searchResultsStats,
+    bookmarks: bookmarksStats,
+    summary: {
+      totalCacheSize: embeddingsCacheStats.size + searchEmbeddingsStats.size + searchResultsStats.size + bookmarksStats.size,
+      totalHits: embeddingsCacheStats.hits + searchEmbeddingsStats.hits + searchResultsStats.hits + bookmarksStats.hits,
+      totalMisses: embeddingsCacheStats.misses + searchEmbeddingsStats.misses + searchResultsStats.misses + bookmarksStats.misses,
+      totalHitRate: ((embeddingsCacheStats.hits + searchEmbeddingsStats.hits + searchResultsStats.hits + bookmarksStats.hits) /
+                     (embeddingsCacheStats.hits + embeddingsCacheStats.misses + searchEmbeddingsStats.hits + searchEmbeddingsStats.misses +
+                      searchResultsStats.hits + searchResultsStats.misses + bookmarksStats.hits + bookmarksStats.misses) * 100).toFixed(2),
+    }
   });
 });
 
@@ -706,6 +760,16 @@ function getInlineAdminHTML(): string {
           <h3>Active Now</h3>
           <div class="value">\${data.enrichments.active}</div>
           <div class="label">In progress</div>
+        </div>
+        <div class="stat-card">
+          <h3>Cache Hit Rate</h3>
+          <div class="value">\${data.cache?.total?.hitRate?.toFixed(1) || 0}%</div>
+          <div class="label">\${data.cache?.total?.hits || 0} hits / \${(data.cache?.total?.hits || 0) + (data.cache?.total?.misses || 0)} requests</div>
+        </div>
+        <div class="stat-card">
+          <h3>Cached Items</h3>
+          <div class="value">\${data.cache?.total?.size || 0}</div>
+          <div class="label">Across all caches</div>
         </div>
         <div class="stat-card">
           <h3>Last Hour</h3>

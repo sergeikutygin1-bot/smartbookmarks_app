@@ -18,7 +18,11 @@ export async function GET(request: NextRequest) {
       backendUrl.searchParams.append(key, value);
     });
 
-    const response = await fetch(backendUrl.toString());
+    const response = await fetch(backendUrl.toString(), {
+      headers: {
+        'X-Mock-User-Id': 'dev-user-id-12345', // Mock auth for development
+      },
+    });
 
     if (!response.ok) {
       throw new Error(`Backend returned ${response.status}`);

@@ -53,6 +53,7 @@ export async function PATCH(
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
+        'X-Mock-User-Id': 'dev-user-id-12345', // Mock auth for development
       },
       body: JSON.stringify(body),
     });

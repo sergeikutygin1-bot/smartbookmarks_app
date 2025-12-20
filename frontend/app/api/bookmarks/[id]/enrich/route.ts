@@ -49,13 +49,18 @@ export async function POST(
     // Queue the enrichment job with backend (returns immediately)
     const queueResponse = await fetch(ENRICHMENT_API, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mock-User-Id': 'dev-user-id-12345', // Mock auth for development
+      },
       body: JSON.stringify({
         url: bookmark.url,
         existingTags,
         userTitle: bookmark.title,
         userSummary: bookmark.summary,
         userTags: bookmark.tags,
+        bookmarkId: id, // Add bookmarkId so worker can save results
+        userId: 'dev-user-id-12345', // Add userId for database operations
       }),
     });
 
@@ -121,18 +126,21 @@ export async function PATCH(
     const enhancedSummary = enrichmentData.analysis?.summary || currentBookmark.summary;
 
     // Prepare update payload with enriched data
+    // Note: Worker already saved tags to database via proper many-to-many relations
+    // So we exclude tags from this update to avoid Prisma validation errors
     const updatePayload = {
       title: enrichmentData.analysis?.title || enrichmentData.title || currentBookmark.title,
       url: currentBookmark.url,
       domain: enrichmentData.domain || currentBookmark.domain,
       contentType: enrichmentData.contentType || currentBookmark.contentType,
       summary: enhancedSummary,
-      tags: enrichmentData.tagging?.tags || currentBookmark.tags,
+      // tags: excluded - already saved by worker with proper relations
       embedding: enrichmentData.embedding || currentBookmark.embedding,
       embeddedAt: enrichmentData.embeddedAt
         ? new Date(enrichmentData.embeddedAt).toISOString()
         : currentBookmark.embeddedAt,
       processedAt: new Date().toISOString(),
+      status: 'completed',
     };
 
     // Update bookmark via backend API
@@ -140,6 +148,7 @@ export async function PATCH(
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
+        'X-Mock-User-Id': 'dev-user-id-12345', // Mock auth for development
       },
       body: JSON.stringify(updatePayload),
     });
