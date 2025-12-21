@@ -80,7 +80,73 @@ export function BookmarkList() {
     );
   }
 
-  // Group bookmarks by date (Apple Notes style)
+  // When searching, show flat list sorted by relevance
+  // When browsing, group by date (Apple Notes style)
+  const displayMode = searchQuery ? 'search' : 'grouped';
+
+  if (displayMode === 'search') {
+    // Search results - flat list sorted by relevance (most relevant first)
+    const filteredBookmarks = bookmarks.filter((bookmark) => bookmark.id);
+
+    return (
+      <ScrollArea className="h-full w-full">
+        <div className="pb-4">
+          <AnimatePresence mode="popLayout">
+            <motion.div
+              layout
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="mb-6"
+            >
+              {/* Search Results Header */}
+              <h2 className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider sticky top-0 bg-sidebar z-10">
+                Search Results ({filteredBookmarks.length})
+              </h2>
+
+              {/* Flat list of search results */}
+              <div className="space-y-0.5">
+                {filteredBookmarks.map((bookmark, index) => (
+                  <motion.div
+                    key={bookmark.id}
+                    layout
+                    initial={{ opacity: 0, height: 0, y: -20 }}
+                    animate={{
+                      opacity: 1,
+                      height: "auto",
+                      y: 0,
+                      transition: {
+                        duration: 0.2,
+                        delay: index * 0.02,
+                        ease: "easeOut",
+                      },
+                    }}
+                    exit={{
+                      opacity: 0,
+                      height: 0,
+                      y: -10,
+                      transition: {
+                        duration: 0.15,
+                        ease: "easeIn",
+                      },
+                    }}
+                  >
+                    <BookmarkListItem
+                      bookmark={bookmark}
+                      isSelected={selectedBookmarkId === bookmark.id}
+                      onClick={() => selectBookmark(bookmark.id)}
+                    />
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </ScrollArea>
+    );
+  }
+
+  // Grouped view - Group bookmarks by date (Apple Notes style)
   const groupedBookmarks = groupBookmarksByDate(
     bookmarks.filter((bookmark) => bookmark.id)
   );
