@@ -225,7 +225,93 @@ export const bookmarksApi = {
   },
 
   /**
-   * Poll job status until completion
+   * Watch enrichment status using Server-Sent Events (SSE)
+   * Push-based updates instead of polling - more efficient and responsive
+   *
+   * Benefits:
+   * - 98% fewer requests (1 connection vs 60 polls)
+   * - Instant updates (no 2-second delay)
+   * - Lower backend load
+   */
+  private async watchEnrichmentStatusSSE(jobId: string, signal?: AbortSignal): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const url = apiRoutes.enrich.stream(jobId);
+      const eventSource = new EventSource(url);
+
+      console.log(`[API] Opening SSE connection for job ${jobId}`);
+
+      // Handle incoming messages
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log(`[API] SSE event:`, data);
+
+          switch (data.status) {
+            case 'connected':
+              console.log(`[API] SSE connection established for job ${jobId}`);
+              break;
+
+            case 'completed':
+              console.log(`[API] Job ${jobId} completed via SSE`);
+              eventSource.close();
+              resolve(data.result);
+              break;
+
+            case 'failed':
+              console.log(`[API] Job ${jobId} failed via SSE:`, data.error);
+              eventSource.close();
+
+              // Check if URL validation error (don't retry these)
+              const isUrlError = data.error?.includes('URL could not be accessed') ||
+                                data.error?.includes('not accessible') ||
+                                data.error?.includes('Could not connect');
+
+              if (isUrlError) {
+                const error = new Error(data.error);
+                error.name = 'URLValidationError';
+                reject(error);
+              } else {
+                reject(new Error(data.error || 'Enrichment failed'));
+              }
+              break;
+
+            case 'timeout':
+              console.log(`[API] Job ${jobId} timed out via SSE`);
+              eventSource.close();
+              reject(new Error('Enrichment timed out after 3 minutes'));
+              break;
+
+            case 'error':
+              console.error(`[API] SSE error event for job ${jobId}:`, data.error);
+              eventSource.close();
+              reject(new Error(data.error || 'SSE error'));
+              break;
+          }
+        } catch (error) {
+          console.error('[API] Failed to parse SSE message:', error);
+          eventSource.close();
+          reject(new Error('Failed to parse server response'));
+        }
+      };
+
+      // Handle connection errors
+      eventSource.onerror = (error) => {
+        console.error(`[API] SSE connection error for job ${jobId}:`, error);
+        eventSource.close();
+        reject(new Error('SSE connection failed'));
+      };
+
+      // Handle abort signal
+      signal?.addEventListener('abort', () => {
+        console.log(`[API] SSE aborted for job ${jobId}`);
+        eventSource.close();
+        reject(new Error('Enrichment cancelled'));
+      });
+    });
+  }
+
+  /**
+   * Poll job status until completion (FALLBACK for SSE failures)
    * CLIENT-SIDE polling - runs in the browser, not on the server
    */
   async pollJobStatus(jobId: string, signal?: AbortSignal, maxAttempts: number = 60): Promise<any> {
@@ -274,8 +360,30 @@ export const bookmarksApi = {
   },
 
   /**
+   * Watch enrichment status with automatic SSE → polling fallback
+   * Tries Server-Sent Events first for instant updates, falls back to polling if SSE unavailable
+   */
+  private async watchEnrichmentStatus(jobId: string, signal?: AbortSignal): Promise<any> {
+    // Check if EventSource is supported in this environment
+    if (typeof EventSource === 'undefined') {
+      console.log('[API] SSE not supported, using polling');
+      return this.pollJobStatus(jobId, signal);
+    }
+
+    // Try SSE first, fallback to polling on any error
+    try {
+      console.log('[API] Attempting SSE connection...');
+      return await this.watchEnrichmentStatusSSE(jobId, signal);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn(`[API] SSE failed (${errorMessage}), falling back to polling`);
+      return this.pollJobStatus(jobId, signal);
+    }
+  }
+
+  /**
    * Enrich a bookmark with AI-generated metadata
-   * Uses CLIENT-SIDE polling for job status (browser polls, not server)
+   * Uses Server-Sent Events for real-time updates with automatic fallback to polling
    * Automatically retries up to 3 times with exponential backoff (1s, 2s, 4s)
    */
   async enrich(id: string, signal?: AbortSignal): Promise<Bookmark> {
@@ -295,8 +403,8 @@ export const bookmarksApi = {
       const { jobId } = queueData;
       console.log(`[API] Job queued: ${jobId} for bookmark: ${id}`);
 
-      // Step 2: Poll for job completion (CLIENT-SIDE polling in browser)
-      const result = await this.pollJobStatus(jobId, signal);
+      // Step 2: Watch for job completion (SSE with polling fallback)
+      const result = await this.watchEnrichmentStatus(jobId, signal);
 
       // Step 3: Fetch the updated bookmark from database
       // Note: Worker already saved all enrichment results (title, summary, tags, embedding)
