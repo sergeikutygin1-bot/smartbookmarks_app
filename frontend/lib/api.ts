@@ -232,8 +232,10 @@ export const bookmarksApi = {
    * - 98% fewer requests (1 connection vs 60 polls)
    * - Instant updates (no 2-second delay)
    * - Lower backend load
+   *
+   * @internal - Use watchEnrichmentStatus() instead
    */
-  private async watchEnrichmentStatusSSE(jobId: string, signal?: AbortSignal): Promise<any> {
+  async watchEnrichmentStatusSSE(jobId: string, signal?: AbortSignal): Promise<any> {
     return new Promise((resolve, reject) => {
       const url = apiRoutes.enrich.stream(jobId);
       const eventSource = new EventSource(url);
@@ -308,7 +310,7 @@ export const bookmarksApi = {
         reject(new Error('Enrichment cancelled'));
       });
     });
-  }
+  },
 
   /**
    * Poll job status until completion (FALLBACK for SSE failures)
@@ -362,8 +364,10 @@ export const bookmarksApi = {
   /**
    * Watch enrichment status with automatic SSE → polling fallback
    * Tries Server-Sent Events first for instant updates, falls back to polling if SSE unavailable
+   *
+   * @internal - Called by enrich() method
    */
-  private async watchEnrichmentStatus(jobId: string, signal?: AbortSignal): Promise<any> {
+  async watchEnrichmentStatus(jobId: string, signal?: AbortSignal): Promise<any> {
     // Check if EventSource is supported in this environment
     if (typeof EventSource === 'undefined') {
       console.log('[API] SSE not supported, using polling');
@@ -379,7 +383,7 @@ export const bookmarksApi = {
       console.warn(`[API] SSE failed (${errorMessage}), falling back to polling`);
       return this.pollJobStatus(jobId, signal);
     }
-  }
+  },
 
   /**
    * Enrich a bookmark with AI-generated metadata
