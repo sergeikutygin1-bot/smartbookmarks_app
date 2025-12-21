@@ -1,13 +1,18 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Bookmark } from "@/store/bookmarksStore";
 import { useUpdateBookmark, useEnrichBookmark } from "@/hooks/useBookmarks";
 import { useEnrichmentStore } from "@/store/enrichmentStore";
+import { useAutoSave } from "@/hooks/use-auto-save";
+import { bookmarkFormSchema, BookmarkFormData } from "@/lib/validators/bookmark";
 import { Input } from "@/components/ui/input";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ExternalLink, Tag, Sparkles, X, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -24,73 +29,49 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const enrichmentStatus = useEnrichmentStore(state => state.getEnrichmentStatus(bookmark.id));
   const isEnriching = useEnrichmentStore(state => state.isEnriching(bookmark.id));
 
-  const [title, setTitle] = useState(bookmark.title);
-  const [url, setUrl] = useState(bookmark.url);
-  const [summary, setSummary] = useState(bookmark.summary || "");
-  const [tags, setTags] = useState<string[]>(bookmark.tags);
+  // Tag input state (not part of form, just UI state)
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTagValue, setNewTagValue] = useState("");
-  const [isUrlValid, setIsUrlValid] = useState(true);
-  const lastInvalidUrlRef = useRef<string>("");
   const tagInputRef = useRef<HTMLInputElement>(null);
 
-  // Track if we're actively saving
-  const isSaving = updateMutation.isPending;
+  // Initialize form with React Hook Form + Zod validation
+  const {
+    register,
+    watch,
+    setValue,
+    formState: { errors, isDirty },
+    reset,
+  } = useForm<BookmarkFormData>({
+    resolver: zodResolver(bookmarkFormSchema),
+    defaultValues: {
+      title: bookmark.title,
+      url: bookmark.url,
+      summary: bookmark.summary || '',
+      tags: bookmark.tags,
+    },
+  });
 
-  // Validate URL format (basic check only - backend will verify accessibility)
-  const validateUrl = (urlString: string): boolean => {
-    if (!urlString || urlString === '') return true; // Empty is okay (untitled bookmark)
+  // Watch all form values for auto-save
+  const formData = watch();
 
-    try {
-      const url = new URL(urlString);
+  // Auto-save with debounce using our custom hook
+  const saveStatus = useAutoSave(
+    formData,
+    async (data) => {
+      if (!bookmark.id || !isDirty) return;
 
-      // Only check for http/https protocol - backend handles everything else
-      if (!['http:', 'https:'].includes(url.protocol)) {
-        return false;
-      }
-
-      return true;
-    } catch {
-      // If URL() constructor fails, it's definitely invalid
-      return false;
-    }
-  };
-
-  // Validate URL and show toast if invalid
-  const validateAndNotify = (urlToValidate: string) => {
-    if (!urlToValidate || urlToValidate === '') {
-      setIsUrlValid(true);
-      lastInvalidUrlRef.current = "";
-      return true;
-    }
-
-    const isValid = validateUrl(urlToValidate);
-    setIsUrlValid(isValid);
-
-    // Only show toast once per invalid URL (using ref for immediate sync)
-    if (!isValid && urlToValidate !== lastInvalidUrlRef.current) {
-      lastInvalidUrlRef.current = urlToValidate; // Update immediately to prevent duplicate toasts
-      toast.error("Invalid URL - Please enter a valid URL starting with http:// or https://", {
-        duration: 5000,
-        className: "font-semibold",
+      await updateMutation.mutateAsync({
+        id: bookmark.id,
+        data,
       });
-    } else if (isValid) {
-      lastInvalidUrlRef.current = "";
+    },
+    {
+      delay: 500,
+      enabled: isDirty && !!bookmark.id && !isEnriching,
     }
+  );
 
-    return isValid;
-  };
-
-  // Handle URL change (no immediate validation)
-  const handleUrlChange = (newUrl: string) => {
-    setUrl(newUrl);
-    // Don't validate immediately - wait for debounce or user action
-  };
-
-  // Sync local state when:
-  // 1. Bookmark ID changes (user selects different bookmark)
-  // 2. Enrichment completes for THIS bookmark
-  // Store previous ID to detect changes
+  // Sync form when bookmark changes or enrichment completes
   const prevIdRef = useRef<string>();
   const prevEnrichmentStatusRef = useRef<string>();
 
@@ -100,9 +81,6 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
       prevEnrichmentStatusRef.current === 'processing' &&
       enrichmentStatus === 'success';
 
-    // DEFENSIVE CHECK: Verify we're syncing the correct bookmark
-    // This prevents race conditions where enrichment data from one bookmark
-    // incorrectly appears in another bookmark's form
     const shouldSync = idChanged || enrichmentCompleted;
 
     if (shouldSync) {
@@ -122,24 +100,22 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
         `[BookmarkNote] ✓ Syncing to bookmark: ${bookmark.id} ` +
         `(ID changed: ${idChanged}, enrichment completed: ${enrichmentCompleted})`
       );
-      setTitle(bookmark.title);
-      setUrl(bookmark.url);
-      setSummary(bookmark.summary || "");
-      setTags(bookmark.tags);
+
+      // Reset form with new bookmark data
+      reset({
+        title: bookmark.title,
+        url: bookmark.url,
+        summary: bookmark.summary || '',
+        tags: bookmark.tags,
+      });
+
       setIsAddingTag(false);
       setNewTagValue("");
-      setIsUrlValid(true);
-      lastInvalidUrlRef.current = "";
-    } else {
-      console.log(
-        `[BookmarkNote] ⊘ Skipping sync for ${bookmark.id} ` +
-        `(ID changed: ${idChanged}, enrichment completed: ${enrichmentCompleted})`
-      );
     }
 
     prevIdRef.current = bookmark.id;
     prevEnrichmentStatusRef.current = enrichmentStatus;
-  }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags, enrichmentStatus]);
+  }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags, enrichmentStatus, reset]);
 
   // Focus tag input when adding tag
   useEffect(() => {
@@ -148,69 +124,20 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     }
   }, [isAddingTag]);
 
-  // Debounced URL validation - validate after user stops typing for 3 seconds
-  useEffect(() => {
-    if (!url || url === '') {
-      setIsUrlValid(true);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      validateAndNotify(url);
-    }, 3000); // 3 seconds after user stops typing
-
-    return () => clearTimeout(timer);
-  }, [url]);
-
-  // Auto-save with debounce
-  useEffect(() => {
-    // Don't save if bookmark ID is undefined
-    if (!bookmark.id) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      // Normalize tags for comparison (ensure they're strings and sorted)
-      const normalizedLocalTags = tags
-        .map(t => typeof t === 'string' ? t : (t?.name || String(t)))
-        .sort();
-      const normalizedBookmarkTags = bookmark.tags
-        .map(t => typeof t === 'string' ? t : (t?.name || String(t)))
-        .sort();
-
-      const hasChanges =
-        title !== bookmark.title ||
-        url !== bookmark.url ||
-        summary !== bookmark.summary ||
-        JSON.stringify(normalizedLocalTags) !== JSON.stringify(normalizedBookmarkTags);
-
-      if (hasChanges) {
-        updateMutation.mutate({
-          id: bookmark.id,
-          data: { title, url, summary, tags },
-        });
-      }
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [title, url, summary, tags, bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags]);
-
-  // Handle adding a new tag
+  // Tag management functions
   const handleAddTag = () => {
     const trimmedTag = newTagValue.trim();
-    if (trimmedTag && !tags.includes(trimmedTag)) {
-      setTags([...tags, trimmedTag]);
+    if (trimmedTag && !formData.tags.includes(trimmedTag)) {
+      setValue('tags', [...formData.tags, trimmedTag], { shouldDirty: true });
       setNewTagValue("");
       setIsAddingTag(false);
     }
   };
 
-  // Handle removing a tag
   const handleRemoveTag = (tagToRemove: string) => {
-    setTags(tags.filter((tag) => tag !== tagToRemove));
+    setValue('tags', formData.tags.filter((tag) => tag !== tagToRemove), { shouldDirty: true });
   };
 
-  // Handle tag input key press
   const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -225,9 +152,13 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const handleEnrich = async () => {
     if (!bookmark.id || isEnriching) return;
 
-    // Validate URL before enriching
-    if (!validateAndNotify(url)) {
-      return; // Don't proceed if URL is invalid
+    // Validate URL before enriching (using Zod)
+    const urlValidation = bookmarkFormSchema.shape.url.safeParse(formData.url);
+    if (!urlValidation.success) {
+      toast.error("Invalid URL", {
+        description: "Please enter a valid URL before enriching.",
+      });
+      return;
     }
 
     console.log(`[BookmarkNote] Starting enrichment for: ${bookmark.id}`);
@@ -237,25 +168,25 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
 
       console.log(`[BookmarkNote] Enrichment completed for: ${bookmark.id}`);
 
-      // CRITICAL: Only update local state if this enrichment is for the CURRENTLY displayed bookmark
-      // User might have switched to a different bookmark while enrichment was processing
+      // Only update form if this enrichment is for the CURRENTLY displayed bookmark
       if (enrichedBookmark.id === bookmark.id) {
-        // Update local state with enriched data
-        setTitle(enrichedBookmark.title);
-        setSummary(enrichedBookmark.summary || "");
-        setTags(enrichedBookmark.tags);
+        // Reset form with enriched data
+        reset({
+          title: enrichedBookmark.title,
+          url: enrichedBookmark.url,
+          summary: enrichedBookmark.summary || '',
+          tags: enrichedBookmark.tags,
+        });
 
-        // Show success toast (only if still viewing this bookmark)
         toast.success("AI enrichment completed!", {
           description: "Summary, tags, and metadata have been updated.",
           classNames: {
-            description: "!text-foreground/90 !font-medium", // Higher contrast description
+            description: "!text-foreground/90 !font-medium",
           },
         });
       } else {
-        console.log(`[BookmarkNote] Enrichment completed for ${enrichedBookmark.id}, but now viewing ${bookmark.id}. Skipping local state update.`);
+        console.log(`[BookmarkNote] Enrichment completed for ${enrichedBookmark.id}, but now viewing ${bookmark.id}. Skipping form update.`);
 
-        // Show a different toast since user is viewing a different bookmark
         toast.success("Enrichment completed in background", {
           description: "A bookmark was enriched while you were viewing another one.",
         });
@@ -266,24 +197,20 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
 
       if (isAborted) {
         console.log(`[BookmarkNote] Enrichment cancelled for: ${bookmark.id}`);
-        // Don't show error toast for intentional cancellations
         return;
       }
 
-      // Check if this is a URL validation error (expected, not a bug)
+      // Check if this is a URL validation error
       const isUrlError = error instanceof Error && error.name === 'URLValidationError';
 
-      // Only log unexpected errors to console (URL validation errors are expected user feedback)
       if (!isUrlError) {
         console.error(`[BookmarkNote] Enrichment failed for: ${bookmark.id}`, error);
       }
 
-      // Extract error message
       const errorMessage = error instanceof Error
         ? error.message
         : "An unexpected error occurred while enriching the bookmark.";
 
-      // Determine error type for better user messaging
       const isUrlAccessError = errorMessage.includes('URL could not be accessed') ||
                                errorMessage.includes('not accessible') ||
                                errorMessage.includes('Could not connect');
@@ -299,12 +226,11 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
         ? errorMessage + " Please verify the URL is correct and try again."
         : errorMessage;
 
-      // Show detailed error toast
       toast.error(errorTitle, {
         description: errorDescription,
-        duration: 8000, // Longer duration for important errors
+        duration: 8000,
         classNames: {
-          description: "!text-foreground/90 !font-medium", // Higher contrast description
+          description: "!text-foreground/90 !font-medium",
         },
         action: isUrlAccessError ? undefined : {
           label: "Try Again",
@@ -314,6 +240,54 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     }
   };
 
+  // Determine save indicator text
+  const getSaveIndicator = () => {
+    if (isEnriching) {
+      return (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed top-4 right-6 text-sm font-medium text-primary pointer-events-none flex items-center gap-2"
+        >
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {enrichmentStatus === 'queued' ? 'Queued for enrichment...' : 'Enriching with AI...'}
+        </motion.div>
+      );
+    }
+
+    if (saveStatus === 'saving') {
+      return (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.5 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed top-4 right-6 text-[10px] font-medium text-muted-foreground pointer-events-none"
+        >
+          Saving...
+        </motion.div>
+      );
+    }
+
+    if (saveStatus === 'saved') {
+      return (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.5 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed top-4 right-6 text-[10px] font-medium text-muted-foreground pointer-events-none"
+        >
+          Saved
+        </motion.div>
+      );
+    }
+
+    return null;
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -321,73 +295,57 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
       transition={{ duration: 0.3 }}
       className="h-full p-10 overflow-y-auto relative"
     >
-      {/* Auto-save and enriching indicators - subtle, non-intrusive, top-right */}
+      {/* Auto-save and enriching indicators */}
       <AnimatePresence>
-        {isSaving && !isEnriching && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 0.5 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed top-4 right-6 text-[10px] font-medium text-muted-foreground pointer-events-none"
-          >
-            Saving...
-          </motion.div>
-        )}
-        {isEnriching && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed top-4 right-6 text-sm font-medium text-primary pointer-events-none flex items-center gap-2"
-          >
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {enrichmentStatus === 'queued' ? 'Queued for enrichment...' : 'Enriching with AI...'}
-          </motion.div>
-        )}
+        {getSaveIndicator()}
       </AnimatePresence>
 
       <div className="max-w-5xl mx-auto space-y-8">
-        {/* Title - Golden Ratio: 56px (3.5rem) - Commanding headline */}
+        {/* Title - Golden Ratio: 56px (3.5rem) */}
         <div>
           <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            {...register('title')}
             placeholder="Untitled bookmark"
             className="title-display !text-[56px] !leading-[1.1] font-bold border-0 px-0 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-0 h-auto py-3 transition-all duration-200 hover:bg-muted/20 rounded-md"
           />
+          {errors.title && (
+            <p className="text-sm text-destructive mt-2">{errors.title.message}</p>
+          )}
         </div>
 
-        {/* URL with cobalt "Open" button */}
-        <div className="flex items-center gap-3">
-          <ExternalLink className={`h-4 w-4 flex-shrink-0 ${!isUrlValid ? 'text-destructive' : 'text-primary'}`} />
-          <Input
-            value={url}
-            onChange={(e) => handleUrlChange(e.target.value)}
-            placeholder="https://example.com"
-            className={`text-xs border-0 px-2 focus-visible:ring-2 focus-visible:ring-offset-0 h-auto py-1 font-medium transition-all duration-200 hover:bg-muted/20 rounded-md -ml-2 ${
-              !isUrlValid
-                ? 'text-destructive focus-visible:ring-destructive'
-                : 'text-primary focus-visible:ring-primary'
-            }`}
-          />
-          <Button
-            size="sm"
-            variant="default"
-            className="flex-shrink-0 h-8 text-xs font-semibold transition-all duration-200"
-            onClick={() => {
-              if (validateAndNotify(url)) {
-                window.open(url, '_blank');
-              }
-            }}
-            disabled={!url}
-          >
-            Open
-          </Button>
+        {/* URL with Open button */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <ExternalLink className={`h-4 w-4 flex-shrink-0 ${errors.url ? 'text-destructive' : 'text-primary'}`} />
+            <Input
+              {...register('url')}
+              placeholder="https://example.com"
+              className={`text-xs border-0 px-2 focus-visible:ring-2 focus-visible:ring-offset-0 h-auto py-1 font-medium transition-all duration-200 hover:bg-muted/20 rounded-md -ml-2 ${
+                errors.url
+                  ? 'text-destructive focus-visible:ring-destructive'
+                  : 'text-primary focus-visible:ring-primary'
+              }`}
+            />
+            <Button
+              size="sm"
+              variant="default"
+              className="flex-shrink-0 h-8 text-xs font-semibold transition-all duration-200"
+              onClick={() => {
+                if (formData.url) {
+                  window.open(formData.url, '_blank');
+                }
+              }}
+              disabled={!formData.url || !!errors.url}
+            >
+              Open
+            </Button>
+          </div>
+          {errors.url && (
+            <p className="text-sm text-destructive">{errors.url.message}</p>
+          )}
         </div>
 
-        {/* Source info - Small: 12px (0.75rem) */}
+        {/* Source info */}
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span className="font-semibold">{bookmark.domain}</span>
           <span>•</span>
@@ -396,7 +354,7 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
           <span>{bookmark.createdAt.toLocaleDateString()}</span>
         </div>
 
-        {/* Tags - Pink accents */}
+        {/* Tags */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Tag className="h-4 w-4 text-muted-foreground" />
@@ -404,7 +362,7 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
           </div>
           <div className="flex flex-wrap gap-2">
             <AnimatePresence mode="popLayout">
-              {tags.map((tag) => (
+              {formData.tags.map((tag) => (
                 <motion.div
                   key={tag}
                   initial={{ scale: 0, opacity: 0 }}
@@ -453,9 +411,12 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
               </Button>
             )}
           </div>
+          {errors.tags && (
+            <p className="text-sm text-destructive">{errors.tags.message}</p>
+          )}
         </div>
 
-        {/* Summary - Section heading: 20px, Body: 17px */}
+        {/* Summary */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[20px] font-display font-semibold">Summary</span>
@@ -464,7 +425,7 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
               variant="ghost"
               className="h-8 text-sm gap-2 hover:bg-primary hover:text-primary-foreground transition-all duration-200 group"
               onClick={handleEnrich}
-              disabled={isEnriching || !url}
+              disabled={isEnriching || !formData.url}
             >
               {isEnriching ? (
                 <>
@@ -481,12 +442,68 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
           </div>
           <MarkdownEditor
             key={bookmark.id}
-            content={summary}
-            onChange={(newSummary) => setSummary(newSummary)}
+            content={formData.summary || ''}
+            onChange={(newSummary) => setValue('summary', newSummary, { shouldDirty: true })}
             placeholder="Click to add a summary or notes about this bookmark..."
           />
+          {errors.summary && (
+            <p className="text-sm text-destructive">{errors.summary.message}</p>
+          )}
         </div>
       </div>
     </motion.div>
+  );
+}
+
+/**
+ * Skeleton loading state for BookmarkNote
+ * Matches the structure and dimensions of the actual note editor
+ */
+export function BookmarkNoteSkeleton() {
+  return (
+    <div className="h-full p-10 overflow-y-auto">
+      <div className="max-w-5xl mx-auto space-y-8">
+        {/* Title Skeleton - Large, commanding */}
+        <Skeleton className="h-[70px] w-3/4" />
+
+        {/* URL + Open button */}
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-4 w-4 flex-shrink-0" /> {/* Icon */}
+          <Skeleton className="h-6 flex-1" /> {/* URL */}
+          <Skeleton className="h-8 w-16 flex-shrink-0" /> {/* Open button */}
+        </div>
+
+        {/* Source info (domain, type, date) */}
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-2" /> {/* Separator dot */}
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-2" /> {/* Separator dot */}
+          <Skeleton className="h-4 w-28" />
+        </div>
+
+        {/* Tags Section */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-4" /> {/* Tag icon */}
+            <Skeleton className="h-6 w-16" /> {/* "Tags" label */}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Skeleton className="h-7 w-20 rounded-full" />
+            <Skeleton className="h-7 w-24 rounded-full" />
+            <Skeleton className="h-7 w-16 rounded-full" />
+          </div>
+        </div>
+
+        {/* Summary Section */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-6 w-24" /> {/* "Summary" label */}
+            <Skeleton className="h-8 w-32" /> {/* "Enrich with AI" button */}
+          </div>
+          <Skeleton className="h-64 w-full rounded-md" /> {/* Summary textarea */}
+        </div>
+      </div>
+    </div>
   );
 }

@@ -7,6 +7,7 @@ import { BookmarkListItem } from "./BookmarkListItem";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 import { groupBookmarksByDate } from "@/lib/date-grouping";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function BookmarkList() {
   const { selectedBookmarkId, selectBookmark } = useBookmarksStore();
@@ -48,11 +49,7 @@ export function BookmarkList() {
     : regularResult;
 
   if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-8">
-        <p className="text-muted-foreground text-sm">Loading bookmarks...</p>
-      </div>
-    );
+    return <BookmarkListSkeleton />;
   }
 
   if (error) {
@@ -144,6 +141,48 @@ export function BookmarkList() {
             </motion.div>
           ))}
         </AnimatePresence>
+      </div>
+    </ScrollArea>
+  );
+}
+
+/**
+ * Skeleton loading state for BookmarkList
+ * Matches the structure of actual bookmark list with date groups
+ */
+export function BookmarkListSkeleton() {
+  return (
+    <ScrollArea className="h-full w-full">
+      <div className="pb-4">
+        {/* Simulate 2 date groups */}
+        {[1, 2].map((groupIndex) => (
+          <div key={groupIndex} className="mb-6">
+            {/* Section Header Skeleton */}
+            <div className="px-3 py-2">
+              <Skeleton className="h-3 w-20" />
+            </div>
+
+            {/* Bookmark Items Skeletons */}
+            <div className="space-y-0.5">
+              {[...Array(groupIndex === 1 ? 4 : 3)].map((_, itemIndex) => (
+                <div
+                  key={itemIndex}
+                  className="px-3 py-3 space-y-2"
+                >
+                  {/* Title */}
+                  <Skeleton className="h-4 w-3/4" />
+                  {/* Domain + Type */}
+                  <Skeleton className="h-3 w-1/2" />
+                  {/* Tags */}
+                  <div className="flex gap-2 mt-2">
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </ScrollArea>
   );

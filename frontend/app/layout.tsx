@@ -3,6 +3,7 @@ import { DM_Sans, Crimson_Pro } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/lib/query-client";
 import { Toaster } from "@/components/ui/sonner";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -31,8 +32,10 @@ export default function RootLayout({
       <body
         className={`${dmSans.variable} ${crimsonPro.variable} antialiased`}
       >
-        <QueryProvider>{children}</QueryProvider>
-        <Toaster />
+        <ErrorBoundary>
+          <QueryProvider>{children}</QueryProvider>
+          <Toaster />
+        </ErrorBoundary>
       </body>
     </html>
   );
