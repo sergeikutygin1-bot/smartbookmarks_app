@@ -1,5 +1,6 @@
 import { Bookmark } from '@/store/bookmarksStore';
 import { toast } from 'sonner';
+import { apiRoutes } from './routes';
 
 const API_BASE = '/api';
 
@@ -156,36 +157,7 @@ export const bookmarksApi = {
    * Fetch all bookmarks with optional filters
    */
   async getAll(filters?: BookmarkFilters): Promise<Bookmark[]> {
-    // Build query string from filters
-    const params = new URLSearchParams();
-
-    if (filters?.searchQuery) {
-      params.append('q', filters.searchQuery);
-    }
-
-    if (filters?.types && filters.types.length > 0) {
-      // For multiple types, we'll send the first one for now
-      // Can be enhanced to support multiple types in the future
-      params.append('type', filters.types[0]);
-    }
-
-    if (filters?.sources && filters.sources.length > 0) {
-      // For multiple sources, we'll send the first one for now
-      params.append('source', filters.sources[0]);
-    }
-
-    if (filters?.dateFrom) {
-      params.append('dateFrom', filters.dateFrom.toISOString());
-    }
-
-    if (filters?.dateTo) {
-      params.append('dateTo', filters.dateTo.toISOString());
-    }
-
-    const queryString = params.toString();
-    const url = queryString ? `${API_BASE}/bookmarks?${queryString}` : `${API_BASE}/bookmarks`;
-
-    const response = await fetch(url, {
+    const response = await fetch(apiRoutes.bookmarks.list(filters), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -200,7 +172,7 @@ export const bookmarksApi = {
    * Get a single bookmark by ID
    */
   async getById(id: string): Promise<Bookmark> {
-    const response = await fetch(`${API_BASE}/bookmarks/${id}`, {
+    const response = await fetch(apiRoutes.bookmarks.detail(id), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -214,7 +186,7 @@ export const bookmarksApi = {
    * Create a new bookmark
    */
   async create(data: { url: string; title?: string }): Promise<Bookmark> {
-    const response = await fetch(`${API_BASE}/bookmarks`, {
+    const response = await fetch(apiRoutes.bookmarks.create(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -229,7 +201,7 @@ export const bookmarksApi = {
    * Update a bookmark
    */
   async update(id: string, data: Partial<Bookmark>): Promise<Bookmark> {
-    const response = await fetch(`${API_BASE}/bookmarks/${id}`, {
+    const response = await fetch(apiRoutes.bookmarks.update(id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -244,7 +216,7 @@ export const bookmarksApi = {
    * Delete a bookmark
    */
   async delete(id: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/bookmarks/${id}`, {
+    const response = await fetch(apiRoutes.bookmarks.delete(id), {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -263,7 +235,7 @@ export const bookmarksApi = {
         throw new Error('Enrichment cancelled');
       }
 
-      const response = await fetch(`${API_BASE}/enrich/${jobId}`, { signal });
+      const response = await fetch(apiRoutes.enrich.status(jobId), { signal });
 
       if (!response.ok) {
         throw new Error('Failed to get job status');
@@ -313,7 +285,7 @@ export const bookmarksApi = {
       // Step 1: Queue the enrichment job (returns immediately)
       console.log(`[API] Queueing enrichment job for: ${id}`);
 
-      const queueResponse = await fetch(`${API_BASE}/bookmarks/${id}/enrich`, {
+      const queueResponse = await fetch(apiRoutes.bookmarks.enrich(id), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal,
@@ -331,7 +303,7 @@ export const bookmarksApi = {
       // So we just need to fetch the updated bookmark instead of PATCHing again
       console.log(`[API] Fetching updated bookmark: ${id}`);
 
-      const fetchResponse = await fetch(`${API_BASE}/bookmarks/${id}`, {
+      const fetchResponse = await fetch(apiRoutes.bookmarks.detail(id), {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         signal,
@@ -360,15 +332,8 @@ export const bookmarksApi = {
       return [];
     }
 
-    // Build query parameters
-    const params = new URLSearchParams({
-      q: query,
-      mode: options?.mode || 'hybrid',
-      limit: String(options?.limit || 50),
-    });
-
     // Call backend search endpoint with GET request
-    const response = await fetch(`http://localhost:3002/search?${params}`);
+    const response = await fetch(apiRoutes.search.hybrid(query, options?.mode, options?.limit));
 
     const json = await handleResponse(response);
 
