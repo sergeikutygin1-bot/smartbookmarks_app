@@ -15,6 +15,8 @@
     "start": "tsx src/server.ts",
     "worker": "tsx src/workers/enrichmentWorker.ts",
     "worker:dev": "tsx watch src/workers/enrichmentWorker.ts",
+    "worker:graph": "tsx src/workers/graphWorker.ts",
+    "worker:graph:dev": "tsx watch src/workers/graphWorker.ts",
     "type-check": "tsc --noEmit"
   },
   "keywords": [
