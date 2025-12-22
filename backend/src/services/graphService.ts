@@ -1,12 +1,18 @@
 import prisma from '../db/prisma';
 import { SimilarityComputer } from '../agents/SimilarityComputer';
 import { ConceptAnalyzerAgent } from '../agents/ConceptAnalyzerAgent';
+import { graphCache } from './graphCache';
 
 /**
  * Graph Service
  *
  * Business logic for knowledge graph operations.
  * Provides methods for exploring relationships, entities, concepts, and clusters.
+ *
+ * Features:
+ * - Multi-tier Redis caching with intelligent TTLs
+ * - Cache-aside pattern for optimal performance
+ * - Automatic cache invalidation on updates
  */
 export class GraphService {
   /**
@@ -25,6 +31,15 @@ export class GraphService {
   ) {
     // Validate depth
     const safeDepth = Math.min(Math.max(depth, 1), 3); // Clamp to 1-3
+
+    // Check cache first
+    const cached = await graphCache.getSimilar(bookmarkId, userId, safeDepth, limit);
+    if (cached) {
+      console.log(`[GraphService] Cache hit: similar bookmarks for ${bookmarkId}`);
+      return cached;
+    }
+
+    console.log(`[GraphService] Cache miss: computing similar bookmarks for ${bookmarkId}`);
 
     // Get the source bookmark to verify ownership
     const sourceBookmark = await prisma.bookmark.findFirst({
@@ -208,7 +223,12 @@ export class GraphService {
     }
 
     // Sort by weight and limit
-    return related.sort((a, b) => b.weight - a.weight).slice(0, limit);
+    const result = related.sort((a, b) => b.weight - a.weight).slice(0, limit);
+
+    // Cache the result
+    await graphCache.setSimilar(bookmarkId, userId, safeDepth, limit, result);
+
+    return result;
   }
 
   /**
@@ -223,6 +243,13 @@ export class GraphService {
     entityType?: string,
     limit: number = 50
   ) {
+    // Check cache first
+    const cached = await graphCache.getEntityList(userId, entityType, limit);
+    if (cached) {
+      console.log(`[GraphService] Cache hit: entity list for user ${userId}`);
+      return cached;
+    }
+
     const where: any = { userId };
     if (entityType) {
       where.entityType = entityType;
@@ -233,6 +260,9 @@ export class GraphService {
       orderBy: { occurrenceCount: 'desc' },
       take: limit,
     });
+
+    // Cache the result
+    await graphCache.setEntityList(userId, entityType, limit, entities);
 
     return entities;
   }
@@ -249,6 +279,13 @@ export class GraphService {
     userId: string,
     limit: number = 50
   ) {
+    // Check cache first
+    const cached = await graphCache.getEntityBookmarks(entityId, userId, limit);
+    if (cached) {
+      console.log(`[GraphService] Cache hit: bookmarks for entity ${entityId}`);
+      return cached;
+    }
+
     // Verify entity ownership
     const entity = await prisma.entity.findFirst({
       where: { id: entityId, userId },
@@ -282,7 +319,7 @@ export class GraphService {
     });
 
     // Merge with relationship weights
-    return relationships.map((rel) => {
+    const result = relationships.map((rel) => {
       const bookmark = bookmarks.find((b) => b.id === rel.sourceId);
       return {
         bookmark,
@@ -290,6 +327,11 @@ export class GraphService {
         metadata: rel.metadata,
       };
     });
+
+    // Cache the result
+    await graphCache.setEntityBookmarks(entityId, userId, limit, result);
+
+    return result;
   }
 
   /**
@@ -299,6 +341,13 @@ export class GraphService {
    * @param limit - Max results (default: 100)
    */
   async listConcepts(userId: string, limit: number = 100) {
+    // Check cache first
+    const cached = await graphCache.getConceptList(userId, limit);
+    if (cached) {
+      console.log(`[GraphService] Cache hit: concept list for user ${userId}`);
+      return cached;
+    }
+
     const concepts = await prisma.concept.findMany({
       where: { userId },
       orderBy: { occurrenceCount: 'desc' },
@@ -308,6 +357,9 @@ export class GraphService {
         childConcepts: true,
       },
     });
+
+    // Cache the result
+    await graphCache.setConceptList(userId, limit, concepts);
 
     return concepts;
   }
@@ -324,6 +376,17 @@ export class GraphService {
     userId: string,
     minCoOccurrence: number = 2
   ) {
+    // Check cache first
+    const cached = await graphCache.getRelatedConcepts(
+      conceptId,
+      userId,
+      minCoOccurrence
+    );
+    if (cached) {
+      console.log(`[GraphService] Cache hit: related concepts for ${conceptId}`);
+      return cached;
+    }
+
     // Verify concept ownership
     const concept = await prisma.concept.findFirst({
       where: { id: conceptId, userId },
@@ -335,7 +398,16 @@ export class GraphService {
 
     // Use ConceptAnalyzerAgent's co-occurrence method
     const agent = new ConceptAnalyzerAgent();
-    return agent.findRelatedConcepts(conceptId, userId, minCoOccurrence);
+    const result = await agent.findRelatedConcepts(
+      conceptId,
+      userId,
+      minCoOccurrence
+    );
+
+    // Cache the result
+    await graphCache.setRelatedConcepts(conceptId, userId, minCoOccurrence, result);
+
+    return result;
   }
 
   /**
@@ -345,6 +417,13 @@ export class GraphService {
    * @param limit - Max results (default: 20)
    */
   async listClusters(userId: string, limit: number = 20) {
+    // Check cache first
+    const cached = await graphCache.getClusterList(userId, limit);
+    if (cached) {
+      console.log(`[GraphService] Cache hit: cluster list for user ${userId}`);
+      return cached;
+    }
+
     const clusters = await prisma.cluster.findMany({
       where: { userId },
       orderBy: { bookmarkCount: 'desc' },
@@ -355,6 +434,9 @@ export class GraphService {
         },
       },
     });
+
+    // Cache the result
+    await graphCache.setClusterList(userId, limit, clusters);
 
     return clusters;
   }
@@ -371,6 +453,17 @@ export class GraphService {
     userId: string,
     bookmarkLimit: number = 50
   ) {
+    // Check cache first
+    const cached = await graphCache.getClusterDetails(
+      clusterId,
+      userId,
+      bookmarkLimit
+    );
+    if (cached) {
+      console.log(`[GraphService] Cache hit: cluster details for ${clusterId}`);
+      return cached;
+    }
+
     // Verify cluster ownership
     const cluster = await prisma.cluster.findFirst({
       where: { id: clusterId, userId },
@@ -390,6 +483,9 @@ export class GraphService {
     if (!cluster) {
       throw new Error('Cluster not found');
     }
+
+    // Cache the result
+    await graphCache.setClusterDetails(clusterId, userId, bookmarkLimit, cluster);
 
     return cluster;
   }
@@ -435,6 +531,10 @@ export class GraphService {
       where: { id: sourceClusterId },
     });
 
+    // Invalidate cluster caches
+    await graphCache.invalidateClusterCaches(userId);
+    await graphCache.invalidateStatsCaches(userId);
+
     return { success: true, mergedCount: sourceCluster.bookmarkCount };
   }
 
@@ -444,6 +544,13 @@ export class GraphService {
    * @param userId - User ID
    */
   async getGraphStats(userId: string) {
+    // Check cache first
+    const cached = await graphCache.getStats(userId);
+    if (cached) {
+      console.log(`[GraphService] Cache hit: stats for user ${userId}`);
+      return cached;
+    }
+
     const [
       entityCount,
       conceptCount,
@@ -470,7 +577,7 @@ export class GraphService {
       }),
     ]);
 
-    return {
+    const result = {
       counts: {
         entities: entityCount,
         concepts: conceptCount,
@@ -480,6 +587,11 @@ export class GraphService {
       topEntities,
       topConcepts,
     };
+
+    // Cache the result
+    await graphCache.setStats(userId, result);
+
+    return result;
   }
 
   /**
@@ -508,6 +620,9 @@ export class GraphService {
         ],
       },
     });
+
+    // Invalidate all caches for this user (relationships changed)
+    await graphCache.invalidateAllCaches(userId);
 
     // Re-queue graph processing
     const { graphQueue } = await import('../queues/graphQueue');

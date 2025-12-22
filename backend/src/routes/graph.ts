@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import { graphService } from '../services/graphService';
+import { graphCache } from '../services/graphCache';
 import { authMiddleware } from '../middleware/auth';
 
 const router = express.Router();
@@ -296,6 +297,24 @@ router.post('/bookmarks/:id/refresh', async (req: Request, res: Response) => {
     const statusCode = error instanceof Error && error.message === 'Bookmark not found' ? 404 : 500;
     res.status(statusCode).json({
       error: 'Failed to refresh graph',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/graph/cache/stats
+ * Get cache statistics for monitoring
+ */
+router.get('/cache/stats', async (req: Request, res: Response) => {
+  try {
+    const stats = await graphCache.getCacheStats();
+
+    res.json({ data: stats });
+  } catch (error) {
+    console.error('Error fetching cache stats:', error);
+    res.status(500).json({
+      error: 'Failed to fetch cache statistics',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }

@@ -9,6 +9,7 @@ import {
   SimilarityJobData,
 } from '../queues/graphQueue';
 import { trackAICost } from '../middleware/costControl';
+import { graphCache } from '../services/graphCache';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -67,6 +68,10 @@ async function processEntityExtractionJob(
     // Save entities to database
     await agent.saveEntities(result.entities, bookmarkId, userId);
 
+    // Invalidate entity caches (new entities created)
+    await graphCache.invalidateEntityCaches(userId);
+    await graphCache.invalidateStatsCaches(userId);
+
     // Track AI costs if GPT was used
     if (result.cost) {
       console.log(
@@ -116,6 +121,10 @@ async function processConceptAnalysisJob(
 
     // Save concepts to database
     await agent.saveConcepts(result.concepts, bookmarkId, userId);
+
+    // Invalidate concept caches (new concepts created)
+    await graphCache.invalidateConceptCaches(userId);
+    await graphCache.invalidateStatsCaches(userId);
 
     // Track AI costs
     if (result.cost) {
@@ -173,6 +182,10 @@ async function processSimilarityJob(
       result.similarBookmarks,
       userId
     );
+
+    // Invalidate similar bookmark caches (new relationships created)
+    await graphCache.invalidateSimilarCaches(bookmarkId, userId);
+    await graphCache.invalidateStatsCaches(userId);
 
     console.log(
       `[GraphWorker:Similarity] ✓ Job ${job.id} completed successfully`
