@@ -303,6 +303,44 @@ router.post('/bookmarks/:id/refresh', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/v1/graph/insights
+ * Get AI-generated insights for the user
+ *
+ * Query params:
+ * - regenerate: Force regeneration of insights (default: false)
+ */
+router.get('/insights', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const regenerate = req.query.regenerate === 'true';
+
+    const { insightEngineAgent } = await import('../agents/InsightEngineAgent');
+
+    let insights;
+    if (regenerate) {
+      // Force regeneration
+      insights = await insightEngineAgent.generateInsights(userId);
+    } else {
+      // Try to get cached insights first
+      insights = await insightEngineAgent.getInsights(userId);
+
+      // If no insights or expired, generate new ones
+      if (insights.length === 0) {
+        insights = await insightEngineAgent.generateInsights(userId);
+      }
+    }
+
+    res.json({ data: insights });
+  } catch (error) {
+    console.error('Error fetching insights:', error);
+    res.status(500).json({
+      error: 'Failed to fetch insights',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
  * GET /api/v1/graph/cache/stats
  * Get cache statistics for monitoring
  */
