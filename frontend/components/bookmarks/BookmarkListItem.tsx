@@ -110,10 +110,10 @@ export function BookmarkListItem({ bookmark, isSelected, onClick }: BookmarkList
       {/* Delete button - appears on hover */}
       <button
         onClick={handleDeleteClick}
-        className="absolute top-3 right-2 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-red-100 text-muted-foreground hover:text-red-600"
+        className="absolute top-2 right-2 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-red-500/10 text-muted-foreground hover:text-red-600 z-10"
         aria-label="Delete bookmark"
       >
-        <X className="h-3.5 w-3.5" />
+        <X className="h-4 w-4" />
       </button>
 
       {/* Delete confirmation dialog */}

@@ -1,5 +1,6 @@
 import { Bookmark } from '@/store/bookmarksStore';
 import { toast } from 'sonner';
+import { apiRoutes } from './routes';
 
 const API_BASE = '/api';
 
@@ -156,36 +157,7 @@ export const bookmarksApi = {
    * Fetch all bookmarks with optional filters
    */
   async getAll(filters?: BookmarkFilters): Promise<Bookmark[]> {
-    // Build query string from filters
-    const params = new URLSearchParams();
-
-    if (filters?.searchQuery) {
-      params.append('q', filters.searchQuery);
-    }
-
-    if (filters?.types && filters.types.length > 0) {
-      // For multiple types, we'll send the first one for now
-      // Can be enhanced to support multiple types in the future
-      params.append('type', filters.types[0]);
-    }
-
-    if (filters?.sources && filters.sources.length > 0) {
-      // For multiple sources, we'll send the first one for now
-      params.append('source', filters.sources[0]);
-    }
-
-    if (filters?.dateFrom) {
-      params.append('dateFrom', filters.dateFrom.toISOString());
-    }
-
-    if (filters?.dateTo) {
-      params.append('dateTo', filters.dateTo.toISOString());
-    }
-
-    const queryString = params.toString();
-    const url = queryString ? `${API_BASE}/bookmarks?${queryString}` : `${API_BASE}/bookmarks`;
-
-    const response = await fetch(url, {
+    const response = await fetch(apiRoutes.bookmarks.list(filters), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -200,7 +172,7 @@ export const bookmarksApi = {
    * Get a single bookmark by ID
    */
   async getById(id: string): Promise<Bookmark> {
-    const response = await fetch(`${API_BASE}/bookmarks/${id}`, {
+    const response = await fetch(apiRoutes.bookmarks.detail(id), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -214,7 +186,7 @@ export const bookmarksApi = {
    * Create a new bookmark
    */
   async create(data: { url: string; title?: string }): Promise<Bookmark> {
-    const response = await fetch(`${API_BASE}/bookmarks`, {
+    const response = await fetch(apiRoutes.bookmarks.create(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -229,7 +201,7 @@ export const bookmarksApi = {
    * Update a bookmark
    */
   async update(id: string, data: Partial<Bookmark>): Promise<Bookmark> {
-    const response = await fetch(`${API_BASE}/bookmarks/${id}`, {
+    const response = await fetch(apiRoutes.bookmarks.update(id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -244,7 +216,7 @@ export const bookmarksApi = {
    * Delete a bookmark
    */
   async delete(id: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/bookmarks/${id}`, {
+    const response = await fetch(apiRoutes.bookmarks.delete(id), {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -253,7 +225,95 @@ export const bookmarksApi = {
   },
 
   /**
-   * Poll job status until completion
+   * Watch enrichment status using Server-Sent Events (SSE)
+   * Push-based updates instead of polling - more efficient and responsive
+   *
+   * Benefits:
+   * - 98% fewer requests (1 connection vs 60 polls)
+   * - Instant updates (no 2-second delay)
+   * - Lower backend load
+   *
+   * @internal - Use watchEnrichmentStatus() instead
+   */
+  async watchEnrichmentStatusSSE(jobId: string, signal?: AbortSignal): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const url = apiRoutes.enrich.stream(jobId);
+      const eventSource = new EventSource(url);
+
+      console.log(`[API] Opening SSE connection for job ${jobId}`);
+
+      // Handle incoming messages
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log(`[API] SSE event:`, data);
+
+          switch (data.status) {
+            case 'connected':
+              console.log(`[API] SSE connection established for job ${jobId}`);
+              break;
+
+            case 'completed':
+              console.log(`[API] Job ${jobId} completed via SSE`);
+              eventSource.close();
+              resolve(data.result);
+              break;
+
+            case 'failed':
+              console.log(`[API] Job ${jobId} failed via SSE:`, data.error);
+              eventSource.close();
+
+              // Check if URL validation error (don't retry these)
+              const isUrlError = data.error?.includes('URL could not be accessed') ||
+                                data.error?.includes('not accessible') ||
+                                data.error?.includes('Could not connect');
+
+              if (isUrlError) {
+                const error = new Error(data.error);
+                error.name = 'URLValidationError';
+                reject(error);
+              } else {
+                reject(new Error(data.error || 'Enrichment failed'));
+              }
+              break;
+
+            case 'timeout':
+              console.log(`[API] Job ${jobId} timed out via SSE`);
+              eventSource.close();
+              reject(new Error('Enrichment timed out after 3 minutes'));
+              break;
+
+            case 'error':
+              console.error(`[API] SSE error event for job ${jobId}:`, data.error);
+              eventSource.close();
+              reject(new Error(data.error || 'SSE error'));
+              break;
+          }
+        } catch (error) {
+          console.error('[API] Failed to parse SSE message:', error);
+          eventSource.close();
+          reject(new Error('Failed to parse server response'));
+        }
+      };
+
+      // Handle connection errors
+      eventSource.onerror = (error) => {
+        console.error(`[API] SSE connection error for job ${jobId}:`, error);
+        eventSource.close();
+        reject(new Error('SSE connection failed'));
+      };
+
+      // Handle abort signal
+      signal?.addEventListener('abort', () => {
+        console.log(`[API] SSE aborted for job ${jobId}`);
+        eventSource.close();
+        reject(new Error('Enrichment cancelled'));
+      });
+    });
+  },
+
+  /**
+   * Poll job status until completion (FALLBACK for SSE failures)
    * CLIENT-SIDE polling - runs in the browser, not on the server
    */
   async pollJobStatus(jobId: string, signal?: AbortSignal, maxAttempts: number = 60): Promise<any> {
@@ -263,7 +323,7 @@ export const bookmarksApi = {
         throw new Error('Enrichment cancelled');
       }
 
-      const response = await fetch(`${API_BASE}/enrich/${jobId}`, { signal });
+      const response = await fetch(apiRoutes.enrich.status(jobId), { signal });
 
       if (!response.ok) {
         throw new Error('Failed to get job status');
@@ -302,8 +362,32 @@ export const bookmarksApi = {
   },
 
   /**
+   * Watch enrichment status with automatic SSE → polling fallback
+   * Tries Server-Sent Events first for instant updates, falls back to polling if SSE unavailable
+   *
+   * @internal - Called by enrich() method
+   */
+  async watchEnrichmentStatus(jobId: string, signal?: AbortSignal): Promise<any> {
+    // Check if EventSource is supported in this environment
+    if (typeof EventSource === 'undefined') {
+      console.log('[API] SSE not supported, using polling');
+      return this.pollJobStatus(jobId, signal);
+    }
+
+    // Try SSE first, fallback to polling on any error
+    try {
+      console.log('[API] Attempting SSE connection...');
+      return await this.watchEnrichmentStatusSSE(jobId, signal);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.warn(`[API] SSE failed (${errorMessage}), falling back to polling`);
+      return this.pollJobStatus(jobId, signal);
+    }
+  },
+
+  /**
    * Enrich a bookmark with AI-generated metadata
-   * Uses CLIENT-SIDE polling for job status (browser polls, not server)
+   * Uses Server-Sent Events for real-time updates with automatic fallback to polling
    * Automatically retries up to 3 times with exponential backoff (1s, 2s, 4s)
    */
   async enrich(id: string, signal?: AbortSignal): Promise<Bookmark> {
@@ -313,7 +397,7 @@ export const bookmarksApi = {
       // Step 1: Queue the enrichment job (returns immediately)
       console.log(`[API] Queueing enrichment job for: ${id}`);
 
-      const queueResponse = await fetch(`${API_BASE}/bookmarks/${id}/enrich`, {
+      const queueResponse = await fetch(apiRoutes.bookmarks.enrich(id), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal,
@@ -323,15 +407,15 @@ export const bookmarksApi = {
       const { jobId } = queueData;
       console.log(`[API] Job queued: ${jobId} for bookmark: ${id}`);
 
-      // Step 2: Poll for job completion (CLIENT-SIDE polling in browser)
-      const result = await this.pollJobStatus(jobId, signal);
+      // Step 2: Watch for job completion (SSE with polling fallback)
+      const result = await this.watchEnrichmentStatus(jobId, signal);
 
       // Step 3: Fetch the updated bookmark from database
       // Note: Worker already saved all enrichment results (title, summary, tags, embedding)
       // So we just need to fetch the updated bookmark instead of PATCHing again
       console.log(`[API] Fetching updated bookmark: ${id}`);
 
-      const fetchResponse = await fetch(`${API_BASE}/bookmarks/${id}`, {
+      const fetchResponse = await fetch(apiRoutes.bookmarks.detail(id), {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         signal,
@@ -360,15 +444,8 @@ export const bookmarksApi = {
       return [];
     }
 
-    // Build query parameters
-    const params = new URLSearchParams({
-      q: query,
-      mode: options?.mode || 'hybrid',
-      limit: String(options?.limit || 50),
-    });
-
     // Call backend search endpoint with GET request
-    const response = await fetch(`http://localhost:3002/search?${params}`);
+    const response = await fetch(apiRoutes.search.hybrid(query, options?.mode, options?.limit));
 
     const json = await handleResponse(response);
 

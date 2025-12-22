@@ -15,6 +15,11 @@ export interface EnrichmentJobData extends EnrichmentOptions {
   userId?: string;
 
   /**
+   * Optional bookmark ID to save results directly to database
+   */
+  bookmarkId?: string;
+
+  /**
    * Timestamp when the job was created
    */
   createdAt?: Date;
