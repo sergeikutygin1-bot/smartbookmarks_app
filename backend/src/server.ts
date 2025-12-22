@@ -17,6 +17,7 @@ import adminRoutes from "./routes/admin";
 import searchRoutes from "./routes/search";
 import bookmarksRoutes from "./routes/bookmarks";
 import enrichRoutes from "./routes/enrich";
+import graphRoutes from "./routes/graph";
 import { enrichmentQueue } from "./queues/enrichmentQueue";
 import { authMiddleware } from "./middleware/auth";
 import { enrichmentRateLimit, generalRateLimit, searchRateLimit } from "./middleware/rateLimiter";
@@ -68,6 +69,9 @@ app.use("/search", searchRateLimit, searchRoutes);
 // Bookmarks CRUD routes
 app.use("/api/bookmarks", bookmarksRoutes);
 
+// Graph API routes
+app.use("/api/v1/graph", graphRoutes);
+
 // Enrichment routes (polling + SSE)
 app.use("/enrich", enrichRoutes);
 
@@ -88,10 +92,18 @@ app.listen(PORT, () => {
   console.log(`   Enrich (queue):   POST   http://localhost:${PORT}/enrich`);
   console.log(`   Job status:       GET    http://localhost:${PORT}/enrich/:jobId`);
   console.log(`   Job stream (SSE): GET    http://localhost:${PORT}/enrich/:jobId/stream`);
+  console.log(`\n🔗 Knowledge Graph API:`);
+  console.log(`   Related bookmarks: GET   http://localhost:${PORT}/api/v1/graph/bookmarks/:id/related`);
+  console.log(`   List entities:     GET   http://localhost:${PORT}/api/v1/graph/entities`);
+  console.log(`   List concepts:     GET   http://localhost:${PORT}/api/v1/graph/concepts`);
+  console.log(`   List clusters:     GET   http://localhost:${PORT}/api/v1/graph/clusters`);
+  console.log(`   Graph stats:       GET   http://localhost:${PORT}/api/v1/graph/stats`);
   console.log(`\n🔍 Search & Admin:`);
   console.log(`   Search endpoint:  POST   http://localhost:${PORT}/search`);
   console.log(`   Admin dashboard:  GET    http://localhost:${PORT}/admin`);
-  console.log("\n⚙️  Background worker: npm run worker");
+  console.log("\n⚙️  Background workers:");
+  console.log("   Enrichment:       npm run worker");
+  console.log("   Graph:            npm run worker:graph");
   console.log("=".repeat(60) + "\n");
 
   logger.info("server", `Server started on port ${PORT}`);
