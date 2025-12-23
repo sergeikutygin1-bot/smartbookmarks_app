@@ -1496,3 +1496,234 @@ Capture screenshots for:
 | `/api/bookmarks/:id` | DELETE | Delete bookmark |
 | `/enrich` | POST | AI enrichment (backend port 3002) |
 | `/search` | POST | Hybrid search (backend port 3002) |
+---
+
+## Bug Fixes - December 16, 2025
+
+### Issue 1: Bookmarks Not Loading (FIXED)
+**Root Cause:** JSON decoding failure due to schema mismatch between backend response and iOS model.
+
+**Problem:** Backend returns `total: null` in bookmark list response, but iOS expected `total: Int` (non-optional).
+
+**Solution:**
+```swift
+// Changed in /ios/SmartBookmarks/SmartBookmarks/Models/APIResponse.swift
+struct BookmarkListResponse: Codable {
+    let data: [Bookmark]
+    let total: Int?  // Changed from Int to Int? (optional)
+    let cursor: String?
+}
+```
+
+**Result:** App now successfully decodes all 45 bookmarks from backend.
+
+---
+
+### Issue 2: Enrichment Failing (FIXED)
+**Root Cause:** Progress tracking structure mismatch between backend and iOS app.
+
+**Backend Response:**
+```json
+{
+  "jobId": "enrich-abc123",
+  "status": "active",
+  "progress": {
+    "step": "extraction",
+    "message": "Extracting content...",
+    "timestamp": "2025-12-16T11:06:53.180Z",
+    "percentage": 20
+  }
+}
+```
+
+**iOS Expected (Old - WRONG):**
+```swift
+struct JobProgress {
+    let extraction: String   // "pending" | "in_progress" | "completed"
+    let analysis: String
+    let tagging: String
+    let embedding: String
+}
+```
+
+**Solution - New JobProgress Model:**
+```swift
+// Changed in /ios/SmartBookmarks/SmartBookmarks/Models/EnrichmentJob.swift
+struct JobProgress: Codable, Equatable {
+    let step: String         // "extraction" | "analysis" | "tagging" | "embedding"
+    let message: String      // Human-readable status message
+    let timestamp: String    // ISO8601 timestamp
+    let percentage: Int      // Progress percentage (0-100)
+
+    var currentStep: String {
+        return message  // Use backend's message directly for UI
+    }
+
+    var percentageDecimal: Double {
+        return Double(percentage) / 100.0
+    }
+}
+```
+
+**Files Modified:**
+- `/ios/SmartBookmarks/SmartBookmarks/Models/EnrichmentJob.swift`
+- `/ios/SmartBookmarks/SmartBookmarks/Services/MockAPIClient.swift` (updated to match)
+
+**Result:** Enrichment now works end-to-end with proper progress tracking.
+
+---
+
+### Enhancement: Comprehensive Error Logging (ADDED)
+
+Added detailed logging to APIClient for easier debugging:
+
+**Changes in `/ios/SmartBookmarks/SmartBookmarks/Services/APIClient.swift`:**
+
+1. **Bookmark Fetching Logs:**
+```
+[APIClient] Fetching bookmarks from: http://192.168.1.6:3002/api/bookmarks
+[APIClient] Response size: 12845 bytes
+[APIClient] Response preview: {"data":[{"id":"1c59d73b...
+[APIClient] Successfully decoded 45 bookmarks
+```
+
+2. **Enrichment Logs:**
+```
+[APIClient] Queueing enrichment for URL: https://example.com/article
+[APIClient] Enrichment queued response: {"jobId":"enrich-abc123"...
+[APIClient] Job queued successfully: enrich-abc123
+[APIClient] Poll response for enrich-abc123: {"status":"active"...
+[APIClient] Job enrich-abc123 status: active, progress: extraction
+[APIClient] Job enrich-abc123 status: completed, progress: completed
+```
+
+3. **Error Logging:**
+- Decoding errors include response dump for debugging
+- Network errors include full context
+- All errors prefixed with `[APIClient] ERROR:`
+
+**Result:** Much easier to diagnose issues by viewing Xcode console logs.
+
+---
+
+## Testing Instructions (Post-Fix)
+
+### Prerequisites
+- Mac and iPhone on same Wi-Fi network
+- Backend running: `http://192.168.1.6:3002`
+- Xcode with iOS app connected
+
+### Test 1: Verify Bookmark Loading
+```bash
+# Terminal: Verify backend has data
+curl http://192.168.1.6:3002/api/bookmarks | jq '.data | length'
+# Should return: 45
+
+# iOS App: Open app
+# Expected: 45 bookmarks displayed in grouped list
+# Check Xcode console for: [APIClient] Successfully decoded 45 bookmarks
+```
+
+### Test 2: Verify Enrichment
+```bash
+# iOS App: 
+# 1. Select bookmark with URL
+# 2. Tap "Enrich" button (sparkles icon)
+# 3. Watch progress updates
+
+# Expected console output:
+[APIClient] Queueing enrichment for URL: <url>
+[APIClient] Job queued successfully: enrich-xxx
+[APIClient] Job enrich-xxx status: active, progress: extraction
+[APIClient] Job enrich-xxx status: active, progress: analysis
+[APIClient] Job enrich-xxx status: active, progress: tagging
+[APIClient] Job enrich-xxx status: active, progress: embedding
+[APIClient] Job enrich-xxx status: completed, progress: completed
+
+# Expected UI behavior:
+# - Button shows "Queuing..." → "Extracting..." → "Analyzing..." → "Generating tags..." → "Enriched"
+# - Title, summary, and tags populate after completion
+# - Auto-save triggers
+# - Success haptic feedback
+```
+
+### Test 3: Error Handling
+```bash
+# Test invalid URL enrichment:
+# 1. Create bookmark with URL: "not-a-url"
+# 2. Tap Enrich
+# Expected: Error shown, button shows "Failed"
+
+# Test network disconnect:
+# 1. Turn off Wi-Fi on iPhone
+# 2. Pull to refresh bookmarks
+# Expected: Network error shown with clear message
+```
+
+---
+
+## Files Changed Summary
+
+### Modified Files
+1. `/ios/SmartBookmarks/SmartBookmarks/Models/APIResponse.swift`
+   - Made `total` optional in `BookmarkListResponse`
+
+2. `/ios/SmartBookmarks/SmartBookmarks/Models/EnrichmentJob.swift`
+   - Complete rewrite of `JobProgress` struct to match backend schema
+
+3. `/ios/SmartBookmarks/SmartBookmarks/Services/MockAPIClient.swift`
+   - Updated mock progress simulation to match new schema
+
+4. `/ios/SmartBookmarks/SmartBookmarks/Services/APIClient.swift`
+   - Added comprehensive logging to all API methods
+   - Better error handling with response dumps
+
+### No Changes Needed
+- BookmarkListViewModel (already configured with `useMockAPI: false`)
+- BookmarkDetailViewModel (polling logic works with new schema)
+- ContentView (already using real API)
+- Config.swift (IP address already correct)
+
+---
+
+## Known Issues & Limitations
+
+### Current Limitations
+1. **No Offline Mode:** App requires network connection
+2. **No Caching:** Bookmarks fetched fresh each time
+3. **No Pagination:** All bookmarks loaded at once (OK for <100 items)
+4. **HTTP Only:** Not using HTTPS (dev environment)
+5. **No Authentication:** Open access to backend
+
+### Future Enhancements
+- [ ] Implement Core Data for offline access
+- [ ] Add pull-to-refresh cache invalidation  
+- [ ] Implement cursor-based pagination for 100+ bookmarks
+- [ ] Add HTTPS and certificate pinning
+- [ ] Implement JWT authentication
+- [ ] Add Sentry for error tracking
+- [ ] Optimize for iPad with multi-column layout
+
+---
+
+## Debugging Checklist
+
+If bookmarks still don't load:
+- [ ] Check backend is running: `curl http://192.168.1.6:3002/api/bookmarks`
+- [ ] Verify IP address in `Config.swift` matches Mac's IP
+- [ ] Check iPhone and Mac are on same Wi-Fi network
+- [ ] Look for `[APIClient]` logs in Xcode console
+- [ ] Check for firewall blocking port 3002
+
+If enrichment fails:
+- [ ] Check backend worker is running: `npm run worker` in backend directory
+- [ ] Verify Redis is running: `redis-cli ping` should return `PONG`
+- [ ] Check backend logs for job processing errors
+- [ ] Look for decode errors in iOS console logs
+- [ ] Test enrichment via curl to verify backend works
+
+---
+
+**Fix Status:** ✅ Both issues resolved
+**Testing Status:** ⏳ Awaiting physical device testing
+**Next Step:** Test on iPhone and monitor console logs

@@ -5,6 +5,7 @@ import type { EnrichmentJobData, EnrichmentJobResult } from '../queues/enrichmen
 import { getJobStorage, JobExecution } from '../services/jobStorage';
 import { bookmarkRepository } from '../repositories/bookmarkRepository';
 import { trackAICost } from '../middleware/costControl';
+import { graphQueue } from '../queues/graphQueue';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -209,6 +210,33 @@ async function processEnrichmentJob(
         }
 
         console.log(`[Worker] ✓ Database updated successfully for bookmark ${job.data.bookmarkId}`);
+
+        // 🔗 Trigger graph processing (entity extraction, concept analysis, similarity)
+        // Build content for graph processing (title + summary + key points)
+        const graphContent = [
+          result.title,
+          result.analysis.summary,
+          // Key points would go here if we extracted them
+        ].filter(Boolean).join('\n\n');
+
+        if (result.embedding && graphContent.length > 0) {
+          console.log(`[Worker] 🔗 Triggering graph processing for bookmark ${job.data.bookmarkId}`);
+          try {
+            await graphQueue.processBookmarkGraph(
+              job.data.bookmarkId,
+              job.data.userId,
+              graphContent,
+              result.embedding,
+              url
+            );
+            console.log(`[Worker] ✓ Graph processing jobs queued successfully`);
+          } catch (graphError) {
+            console.error(`[Worker] ⚠️ Failed to queue graph processing:`, graphError);
+            // Don't fail the enrichment job if graph processing fails
+          }
+        } else {
+          console.warn(`[Worker] ⚠️ Skipping graph processing - missing embedding or content`);
+        }
       } catch (dbError) {
         console.error(`[Worker] ✗ Failed to save to database:`, dbError);
         // Don't fail the job if database save fails - we still have the job storage backup

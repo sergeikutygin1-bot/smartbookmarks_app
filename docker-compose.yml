@@ -46,6 +46,7 @@ services:
     volumes:
       - ./backend/src:/app/src
       - ./backend/prisma:/app/prisma
+      - ./backend/scripts:/app/scripts
       - backend_data:/app/.data
     env_file:
       - ./backend/.env
@@ -79,6 +80,7 @@ services:
     volumes:
       - ./backend/src:/app/src
       - ./backend/prisma:/app/prisma
+      - ./backend/scripts:/app/scripts
       - backend_data:/app/.data
     env_file:
       - ./backend/.env
@@ -93,6 +95,32 @@ services:
       backend-api:
         condition: service_healthy
     command: npm run worker:dev
+    networks:
+      - smartbookmarks
+
+  graph-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: smartbookmarks_graph_worker
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/prisma:/app/prisma
+      - ./backend/scripts:/app/scripts
+      - backend_data:/app/.data
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql://smartbookmarks:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/smartbookmarks
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend-api:
+        condition: service_healthy
+    command: npm run worker:graph:dev
     networks:
       - smartbookmarks
 
@@ -113,6 +141,7 @@ services:
     environment:
       - NODE_ENV=development
       - BACKEND_URL=http://backend-api:3002
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:3002
     depends_on:
       backend-api:
         condition: service_healthy
