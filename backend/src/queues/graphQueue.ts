@@ -91,22 +91,22 @@ class GraphQueueManager {
   constructor() {
     // Initialize all queues
     this.entityQueue = new Queue<EntityExtractionJobData>(
-      'graph:entities',
+      'graph-entities',
       graphQueueOptions
     );
 
     this.conceptQueue = new Queue<ConceptAnalysisJobData>(
-      'graph:concepts',
+      'graph-concepts',
       graphQueueOptions
     );
 
     this.similarityQueue = new Queue<SimilarityJobData>(
-      'graph:similarity',
+      'graph-similarity',
       graphQueueOptions
     );
 
     this.clusteringQueue = new Queue<ClusteringJobData>(
-      'graph:clustering',
+      'graph-clustering',
       {
         ...graphQueueOptions,
         defaultJobOptions: {
@@ -118,7 +118,7 @@ class GraphQueueManager {
     );
 
     this.insightQueue = new Queue<InsightJobData>(
-      'graph:insights',
+      'graph-insights',
       graphQueueOptions
     );
 

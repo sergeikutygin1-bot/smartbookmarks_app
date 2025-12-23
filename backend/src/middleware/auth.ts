@@ -1,15 +1,31 @@
 import { Request, Response, NextFunction } from 'express';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 // ⚠️ PLACEHOLDER: Replace with JWT validation in production
-export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  // For development, use a mock user
-  // In production, validate JWT token here
-  req.user = {
-    id: 'dev-user-id-12345',
-    email: 'dev@example.com',
-  };
+export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // For development, use the first user in the database
+    // In production, validate JWT token here
+    const user = await prisma.user.findFirst();
 
-  next();
+    if (!user) {
+      return res.status(401).json({
+        error: 'No user found. Please create a user first.'
+      });
+    }
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+    };
+
+    next();
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    res.status(500).json({ error: 'Authentication error' });
+  }
 };
 
 // Extend Express Request type

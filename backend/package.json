@@ -17,6 +17,8 @@
     "worker:dev": "tsx watch src/workers/enrichmentWorker.ts",
     "worker:graph": "tsx src/workers/graphWorker.ts",
     "worker:graph:dev": "tsx watch src/workers/graphWorker.ts",
+    "backfill": "tsx scripts/backfill-graph-data.ts",
+    "analyze-performance": "tsx scripts/analyze-query-performance.ts",
     "type-check": "tsc --noEmit"
   },
   "keywords": [

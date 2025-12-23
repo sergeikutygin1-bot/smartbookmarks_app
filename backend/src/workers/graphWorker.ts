@@ -206,7 +206,7 @@ async function processSimilarityJob(
  */
 function createEntityWorker(): Worker {
   const worker = new Worker<EntityExtractionJobData>(
-    'graph:entities',
+    'graph-entities',
     processEntityExtractionJob,
     {
       connection: createRedisConnection(),
@@ -239,7 +239,7 @@ function createEntityWorker(): Worker {
  */
 function createConceptWorker(): Worker {
   const worker = new Worker<ConceptAnalysisJobData>(
-    'graph:concepts',
+    'graph-concepts',
     processConceptAnalysisJob,
     {
       connection: createRedisConnection(),
@@ -272,7 +272,7 @@ function createConceptWorker(): Worker {
  */
 function createSimilarityWorker(): Worker {
   const worker = new Worker<SimilarityJobData>(
-    'graph:similarity',
+    'graph-similarity',
     processSimilarityJob,
     {
       connection: createRedisConnection(),
