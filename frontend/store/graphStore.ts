@@ -1,10 +1,8 @@
 import { create } from 'zustand';
 
-type ViewMode = 'graph' | 'insights' | 'discovery';
 type NodeType = 'bookmarks' | 'concepts' | 'entities';
 
 interface GraphFilters {
-  view: ViewMode;
   nodeTypes: NodeType[];
   searchQuery: string;
 }
@@ -45,7 +43,6 @@ interface GraphState {
 }
 
 const defaultFilters: GraphFilters = {
-  view: 'graph',
   nodeTypes: ['bookmarks', 'concepts', 'entities'],
   searchQuery: '',
 };

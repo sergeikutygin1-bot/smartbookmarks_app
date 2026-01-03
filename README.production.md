@@ -335,9 +335,8 @@ Per user/month with 50 bookmarks:
 - Entity extraction: $0.05 (hybrid spaCy + GPT)
 - Concept analysis: $0.10
 - Clustering: $0.10 (batch, weekly)
-- Insights: $0.05 (batch, daily)
 
-**Total**: ~$0.30/user/month
+**Total**: ~$0.25/user/month
 
 ### Server Costs
 

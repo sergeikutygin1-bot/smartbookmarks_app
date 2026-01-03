@@ -23,7 +23,6 @@ model User {
   entities      Entity[]
   concepts      Concept[]
   relationships Relationship[]
-  graphInsights GraphInsight[]
 
   @@map("users")
 }
@@ -153,27 +152,4 @@ model Relationship {
   @@index([userId, relationshipType, weight(sort: Desc)], name: "relationships_weight_idx")
   @@index([userId, sourceType, sourceId, targetType, targetId], name: "relationships_source_target_idx")
   @@map("relationships")
-}
-
-model GraphInsight {
-  id              String    @id @default(uuid())
-  userId          String    @map("user_id")
-  insightType     String    @map("insight_type") @db.VarChar(50)
-  entityIds       String[]  @map("entity_ids")
-  conceptIds      String[]  @map("concept_ids")
-  bookmarkIds     String[]  @map("bookmark_ids")
-  title           String    @db.VarChar(255)
-  description     String?   @db.Text
-  confidenceScore Float?    @map("confidence_score")
-  relevanceScore  Float?    @map("relevance_score")
-  metadata        Json?     @db.JsonB
-  createdAt       DateTime  @default(now()) @map("created_at")
-  expiresAt       DateTime? @map("expires_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, insightType], name: "graph_insights_user_type_idx")
-  @@index([userId, relevanceScore(sort: Desc)], name: "graph_insights_relevance_idx")
-  @@index([expiresAt], name: "graph_insights_expires_idx")
-  @@map("graph_insights")
 }

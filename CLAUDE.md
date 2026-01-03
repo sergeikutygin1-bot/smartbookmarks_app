@@ -6,13 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Smart Bookmark is an AI-powered universal content capture and organization application with an advanced knowledge graph feature. Users can save content by pasting URLs, and the app automatically extracts metadata, generates summaries, assigns tags, creates embeddings for semantic search, and builds a knowledge graph showing relationships between bookmarks, concepts, and entities.
 
-**Current Status:** Phase 4 complete. Core features implemented including enrichment pipeline, knowledge graph with 4 view modes, AI agents, and production-ready infrastructure. All services run in Docker containers.
+**Current Status:** Phase 4 complete. Core features implemented including enrichment pipeline, knowledge graph visualization, AI agents, and production-ready infrastructure. All services run in Docker containers.
 
 ## Architecture
 
 ### Three-Tier System
 
-1. **Frontend (Next.js 14)** - React Flow-based graph visualization with 4 view modes
+1. **Frontend (Next.js 14)** - React Flow-based graph visualization
 2. **Backend (Node.js/Express)** - RESTful API with agentic AI processing
 3. **Data Layer** - PostgreSQL with pgvector + Redis for caching/queues
 
@@ -49,7 +49,6 @@ Smart Bookmark is an AI-powered universal content capture and organization appli
 
 **Batch Agents** (scheduled, per user):
 - **Cluster Generator Agent** - Groups bookmarks using K-means clustering
-- **Insight Engine Agent** - Generates 4 types of insights (trending, gaps, connections, recommendations)
 
 ## Development Commands
 
@@ -118,7 +117,6 @@ docker exec smartbookmarks_frontend npm run build
 
 ```bash
 # Test scripts (run from backend container)
-docker exec smartbookmarks_backend npx tsx scripts/test-insights.ts
 docker exec smartbookmarks_backend npx tsx scripts/test-clustering.ts
 docker exec smartbookmarks_backend npx tsx scripts/create-synthetic-clusters.ts
 docker exec smartbookmarks_backend npx tsx scripts/populate-graph-data.ts
@@ -130,14 +128,12 @@ docker exec smartbookmarks_backend npx tsx scripts/populate-graph-data.ts
 smart_bookmarks_v2/
 ├── frontend/
 │   ├── app/
-│   │   ├── graph/page.tsx              # Knowledge graph page with 4 view modes
+│   │   ├── graph/page.tsx              # Knowledge graph page
 │   │   └── bookmarks/                  # Bookmark management pages
 │   ├── components/
 │   │   ├── graph/                      # Graph visualization components
 │   │   │   ├── GraphView/              # React Flow canvas with custom nodes
-│   │   │   ├── ClusterView/            # Auto-generated topic clusters
-│   │   │   ├── InsightsView/           # AI-powered insights dashboard
-│   │   │   └── DiscoveryMode/          # Breadcrumb-based exploration
+│   │   │   └── ClusterView/            # Auto-generated topic clusters
 │   │   └── bookmarks/                  # Bookmark UI components
 │   ├── hooks/
 │   │   └── graph/useGraphData.ts       # Graph data fetching hook
@@ -149,12 +145,11 @@ smart_bookmarks_v2/
 │   │   ├── agents/                     # AI processing agents
 │   │   │   ├── EntityExtractorAgent.ts
 │   │   │   ├── ConceptAnalyzerAgent.ts
-│   │   │   ├── ClusterGeneratorAgent.ts
-│   │   │   └── InsightEngineAgent.ts
+│   │   │   └── ClusterGeneratorAgent.ts
 │   │   ├── routes/
 │   │   │   ├── bookmarks.ts
 │   │   │   ├── auth.ts
-│   │   │   └── graph.ts                # 10 graph API endpoints
+│   │   │   └── graph.ts                # Graph API endpoints
 │   │   ├── services/
 │   │   │   ├── graphService.ts         # Graph query logic
 │   │   │   └── graphCache.ts           # Redis caching layer
@@ -169,10 +164,9 @@ smart_bookmarks_v2/
 │   ├── scripts/
 │   │   ├── backfill-graph-data.ts      # Backfill existing bookmarks
 │   │   ├── analyze-query-performance.ts # Query performance analysis
-│   │   ├── test-insights.ts
 │   │   └── test-clustering.ts
 │   └── prisma/
-│       └── schema.prisma               # Database schema with 13 tables
+│       └── schema.prisma               # Database schema with 12 tables
 │
 ├── docs/                                # Comprehensive documentation
 ├── docker-compose.yml                   # 6 services: frontend, backend, workers (2), postgres, redis
@@ -209,11 +203,6 @@ smart_bookmarks_v2/
 - `relationship_type` - Type of relationship
 - `weight` - Relationship strength (0-1)
 
-**graph_insights** - AI-generated insights
-- `insight_type` - trending_topic, knowledge_gap, surprising_connection, recommendation
-- `confidence_score` - LLM confidence (0-1)
-- `expires_at` - TTL for insights
-
 ### Critical Indexes
 
 **Bookmarks** (12 indexes):
@@ -243,10 +232,6 @@ smart_bookmarks_v2/
 - `GET /clusters/:id?bookmarkLimit=50` - Cluster details with members
 - `POST /clusters/:id/merge` - Merge two clusters
 
-**Insights:**
-- `GET /insights?regenerate=false` - Get/generate AI insights
-  - Returns: trending topics, knowledge gaps, surprising connections, recommendations
-
 **Utilities:**
 - `GET /stats` - Graph statistics for user
 - `POST /bookmarks/:id/refresh` - Trigger graph refresh for bookmark
@@ -256,37 +241,24 @@ smart_bookmarks_v2/
 
 ### Graph Visualization (React Flow)
 
-**4 View Modes** (tabbed navigation):
+**Graph View** - Interactive network visualization:
+- Custom nodes: `BookmarkNode`, `ConceptNode`, `EntityNode`
+- Weighted edges with labels
+- Zoom, pan, layout controls
 
-1. **Graph View** - Interactive network visualization
-   - Custom nodes: `BookmarkNode`, `ConceptNode`, `EntityNode`
-   - Weighted edges with labels
-   - Zoom, pan, layout controls
-
-2. **Cluster View** - Grid of auto-generated topic clusters
-   - Shows cluster name, description, coherence score, bookmark count
-   - Visual preview with bookmark dots
-
-3. **Insights View** - AI-powered analytics dashboard
-   - Trending topics with line charts (Recharts)
-   - Knowledge gaps with suggestions
-   - Surprising connections highlighting cross-domain patterns
-   - Recommendations based on user interests
-
-4. **Discovery Mode** - Breadcrumb-based exploration
-   - Click node → Show related items → Navigate forward
-   - Click breadcrumb → Navigate backward
-   - Depth tracker showing exploration distance
+**Cluster View** - Grid of auto-generated topic clusters:
+- Shows cluster name, description, coherence score, bookmark count
+- Visual preview with bookmark dots
 
 ### State Management
 
-- **Zustand** (`graphStore.ts`) - UI state (view mode, filters, selections)
+- **Zustand** (`graphStore.ts`) - UI state (filters, selections)
 - **React Query** - Server state with 5min TTL cache
 - **React Flow** - Node positions, layout state
 
 ## Caching Strategy
 
-### Redis Cache Layers (8 layers)
+### Redis Cache Layers (7 layers)
 
 | Cache Type | TTL | Key Pattern | Invalidation |
 |------------|-----|-------------|--------------|
@@ -297,7 +269,6 @@ smart_bookmarks_v2/
 | Graph Similar | 30min | `graph:similar:{id}` | Never (embeddings stable) |
 | Graph Concepts | 1hr | `graph:concepts:{user_id}` | New concept |
 | Graph Clusters | 6hr | `graph:clusters:{user_id}` | Clustering job |
-| Graph Insights | 24hr | `graph:insights:{user_id}` | Daily refresh |
 
 **Performance Impact:**
 - 50-70% reduction in OpenAI API calls
@@ -306,7 +277,7 @@ smart_bookmarks_v2/
 
 ## Job Queue System (BullMQ)
 
-### 7 Queues
+### 6 Queues
 
 **Enrichment Queue:**
 - `enrichment-jobs` - URL extraction, summarization, tagging, embedding
@@ -316,11 +287,10 @@ smart_bookmarks_v2/
 - `graph-concepts` - Concept analysis (priority: 70)
 - `graph-similarity` - Similarity computation (priority: 80, fast)
 - `graph-clustering` - Batch clustering (priority: 10, expensive, 30min timeout)
-- `graph-insights` - Batch insight generation (priority: 10)
 
 **Processing Model:**
 - Real-time: Entities, concepts, similarity (per bookmark after enrichment)
-- Batch: Clustering, insights (daily/weekly for active users)
+- Batch: Clustering (daily/weekly for active users)
 
 **Error Handling:**
 - 3 retry attempts with exponential backoff (2s base delay)
@@ -335,9 +305,8 @@ smart_bookmarks_v2/
 | Concept Analysis | GPT-3.5-turbo | $0.002 | BERTopic + GPT refinement |
 | Similarity Computation | pgvector | Free | Local cosine similarity |
 | Clustering | GPT-3.5-turbo | $0.010 | Cluster naming only |
-| Insight Generation | GPT-3.5-turbo | $0.005 | 4 insight types |
 
-**Total**: ~$0.08/user/month (under $0.10 budget)
+**Total**: ~$0.03/user/month (well under $0.10 budget)
 
 ## Performance Benchmarks
 
@@ -529,7 +498,6 @@ docker exec smartbookmarks_backend npx tsx scripts/create-synthetic-clusters.ts
 4. **Prisma can't filter Unsupported types** - Use raw SQL for `embedding` and `search_vector` filters
 5. **Queue names cannot contain colons** - Use hyphens (e.g., `graph-entities` not `graph:entities`)
 6. **Clustering is expensive** - Only run daily/weekly, not per-bookmark
-7. **Insight generation requires data** - Minimum 5 bookmarks, 2 concepts for meaningful insights
 
 ## Known Issues & Workarounds
 
