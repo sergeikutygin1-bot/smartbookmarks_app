@@ -4,6 +4,7 @@ import { Bookmark } from '@/store/bookmarksStore';
 import { enrichmentQueue } from '@/lib/concurrency';
 import { useEnrichmentStore } from '@/store/enrichmentStore';
 import { enrichmentLogger } from '@/lib/enrichmentLogger';
+import { useRefreshBookmarkMetadata } from '@/hooks/useBookmarkMetadata';
 
 /**
  * Query key factory for bookmarks
@@ -202,6 +203,7 @@ export function useDeleteBookmark() {
  */
 export function useEnrichBookmark() {
   const queryClient = useQueryClient();
+  const refreshMetadata = useRefreshBookmarkMetadata();
   const {
     startEnrichment,
     setProcessing,
@@ -323,22 +325,28 @@ export function useEnrichBookmark() {
       // Update cache with enriched data
       queryClient.setQueryData(bookmarksKeys.detail(id), data);
 
-      // CRITICAL FIX: Instead of invalidating (which causes refetch and race conditions),
-      // surgically update the specific bookmark in the list cache
+      // CRITICAL FIX: Refresh metadata with polling to wait for graph worker completion
+      // The graph workers (entity extraction, concept analysis) run asynchronously after enrichment
+      // This polling ensures we don't cache empty metadata before it's generated
+      console.log(`[useEnrichBookmark] Starting metadata refresh with polling for: ${id}`);
+      refreshMetadata(id);
+
+      // Update the specific bookmark in the list cache without full invalidation
+      // This prevents race conditions where list gets refetched before graph workers finish
       const currentBookmarks = queryClient.getQueryData<Bookmark[]>(bookmarksKeys.lists());
       if (currentBookmarks) {
         const updatedBookmarks = currentBookmarks.map(bookmark =>
           bookmark.id === id ? data : bookmark
         );
         queryClient.setQueryData(bookmarksKeys.lists(), updatedBookmarks);
-        console.log(`[useEnrichBookmark] Updated bookmark ${id} in list cache without invalidation (prevents race condition)`);
+        console.log(`[useEnrichBookmark] Updated bookmark ${id} in list cache`);
       } else {
         // Fallback: if cache is empty, invalidate to refetch
         console.log(`[useEnrichBookmark] Cache empty, invalidating to refetch`);
         queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
       }
 
-      console.log(`[useEnrichBookmark] Cache updated for: ${id}`);
+      console.log(`[useEnrichBookmark] Cache updated and metadata refresh initiated for: ${id}`);
     },
   });
 }
