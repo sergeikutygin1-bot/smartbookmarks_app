@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: smart-bookmarks
+  labels:
+    app.kubernetes.io/name: smart-bookmarks
+    app.kubernetes.io/component: namespace
+    istio-injection: disabled  # Change to enabled if using Istio
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: smart-bookmarks-quota
+  namespace: smart-bookmarks
+spec:
+  hard:
+    requests.cpu: "20"      # Total CPU requests across namespace
+    requests.memory: 32Gi   # Total memory requests
+    limits.cpu: "40"        # Total CPU limits
+    limits.memory: 64Gi     # Total memory limits
+    persistentvolumeclaims: "10"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: smart-bookmarks-limits
+  namespace: smart-bookmarks
+spec:
+  limits:
+  - max:
+      cpu: "4"
+      memory: 8Gi
+    min:
+      cpu: 50m
+      memory: 64Mi
+    default:
+      cpu: 500m
+      memory: 512Mi
+    defaultRequest:
+      cpu: 100m
+      memory: 128Mi
+    type: Container

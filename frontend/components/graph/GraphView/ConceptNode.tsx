@@ -12,13 +12,18 @@ export interface ConceptNodeData {
 }
 
 export const ConceptNode = memo(({ data, selected }: NodeProps<ConceptNodeData>) => {
+  const isHighlighted = (data as any).isHighlighted;
+
   return (
     <div
-      className={`bg-gray-50 border rounded-lg p-3 shadow-sm min-w-[160px] max-w-[220px] transition-all ${
+      className={`border rounded-lg p-3 shadow-sm min-w-[160px] max-w-[220px] transition-all cursor-pointer ${
         selected
-          ? 'border-purple-500 shadow-md ring-2 ring-purple-500 ring-opacity-50'
-          : 'border-gray-300 hover:border-gray-400'
+          ? 'bg-purple-50 border-purple-500 shadow-md ring-2 ring-purple-500 ring-opacity-50'
+          : isHighlighted
+          ? 'bg-gray-50 border-purple-400 shadow-lg ring-2 ring-purple-300 ring-opacity-60'
+          : 'bg-gray-50 border-gray-300 hover:border-purple-400 hover:shadow-md'
       }`}
+      title="Click to highlight connected bookmarks"
     >
       <Handle
         type="target"
@@ -50,7 +55,8 @@ export const ConceptNode = memo(({ data, selected }: NodeProps<ConceptNodeData>)
 }, (prev, next) =>
   prev.selected === next.selected &&
   prev.data.name === next.data.name &&
-  prev.data.occurrenceCount === next.data.occurrenceCount
+  prev.data.occurrenceCount === next.data.occurrenceCount &&
+  (prev.data as any).isHighlighted === (next.data as any).isHighlighted
 );
 
 ConceptNode.displayName = 'ConceptNode';

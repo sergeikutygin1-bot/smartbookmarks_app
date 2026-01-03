@@ -35,14 +35,6 @@ export interface SimilarityJobData {
   priority?: number;
 }
 
-// Clustering Job (batch process for user)
-export interface ClusteringJobData {
-  userId: string;
-  fullRebuild?: boolean;
-  minClusterSize?: number;
-  priority?: number;
-}
-
 // Insight Generation Job (batch process for user)
 export interface InsightJobData {
   userId: string;
@@ -71,12 +63,11 @@ const graphQueueOptions: QueueOptions = {
 /**
  * Graph Queue Manager
  *
- * Manages 5 specialized queues for knowledge graph processing:
+ * Manages 4 specialized queues for knowledge graph processing:
  * 1. Entity Extraction (high priority, real-time)
  * 2. Concept Analysis (high priority, real-time)
  * 3. Similarity Computation (high priority, real-time)
- * 4. Clustering (low priority, batch)
- * 5. Insight Generation (low priority, batch)
+ * 4. Insight Generation (low priority, batch)
  */
 class GraphQueueManager {
   // Real-time queues (process immediately after bookmark enrichment)
@@ -85,7 +76,6 @@ class GraphQueueManager {
   private similarityQueue: Queue<SimilarityJobData>;
 
   // Batch queues (scheduled processing)
-  private clusteringQueue: Queue<ClusteringJobData>;
   private insightQueue: Queue<InsightJobData>;
 
   constructor() {
@@ -105,18 +95,6 @@ class GraphQueueManager {
       graphQueueOptions
     );
 
-    this.clusteringQueue = new Queue<ClusteringJobData>(
-      'graph-clustering',
-      {
-        ...graphQueueOptions,
-        defaultJobOptions: {
-          ...graphQueueOptions.defaultJobOptions,
-          attempts: 2, // Fewer retries for expensive operations
-          timeout: 1800000, // 30 minutes for clustering
-        },
-      }
-    );
-
     this.insightQueue = new Queue<InsightJobData>(
       'graph-insights',
       graphQueueOptions
@@ -127,7 +105,6 @@ class GraphQueueManager {
       this.entityQueue,
       this.conceptQueue,
       this.similarityQueue,
-      this.clusteringQueue,
       this.insightQueue,
     ].forEach((queue) => {
       queue.on('error', (err) => {
@@ -178,19 +155,6 @@ class GraphQueueManager {
   }
 
   /**
-   * Add clustering job (batch operation)
-   */
-  async addClusteringJob(data: ClusteringJobData) {
-    const job = await this.clusteringQueue.add('cluster-bookmarks', data, {
-      priority: data.priority || 10, // Low priority (expensive)
-      jobId: `cluster-${data.userId}-${Date.now()}`, // Unique per run
-    });
-
-    console.log(`[GraphQueue] Added clustering job for user ${data.userId}`);
-    return job;
-  }
-
-  /**
    * Add insight generation job (batch operation)
    */
   async addInsightJob(data: InsightJobData) {
@@ -232,13 +196,11 @@ class GraphQueueManager {
       entityMetrics,
       conceptMetrics,
       similarityMetrics,
-      clusteringMetrics,
       insightMetrics,
     ] = await Promise.all([
       this.getQueueMetrics(this.entityQueue),
       this.getQueueMetrics(this.conceptQueue),
       this.getQueueMetrics(this.similarityQueue),
-      this.getQueueMetrics(this.clusteringQueue),
       this.getQueueMetrics(this.insightQueue),
     ]);
 
@@ -246,7 +208,6 @@ class GraphQueueManager {
       entities: entityMetrics,
       concepts: conceptMetrics,
       similarity: similarityMetrics,
-      clustering: clusteringMetrics,
       insights: insightMetrics,
     };
   }
@@ -282,7 +243,6 @@ class GraphQueueManager {
       this.entityQueue.pause(),
       this.conceptQueue.pause(),
       this.similarityQueue.pause(),
-      this.clusteringQueue.pause(),
       this.insightQueue.pause(),
     ]);
     console.log('[GraphQueue] All queues paused');
@@ -296,7 +256,6 @@ class GraphQueueManager {
       this.entityQueue.resume(),
       this.conceptQueue.resume(),
       this.similarityQueue.resume(),
-      this.clusteringQueue.resume(),
       this.insightQueue.resume(),
     ]);
     console.log('[GraphQueue] All queues resumed');
@@ -310,7 +269,6 @@ class GraphQueueManager {
       this.entityQueue.close(),
       this.conceptQueue.close(),
       this.similarityQueue.close(),
-      this.clusteringQueue.close(),
       this.insightQueue.close(),
     ]);
     console.log('[GraphQueue] All queues closed');
@@ -324,7 +282,6 @@ class GraphQueueManager {
       entity: this.entityQueue,
       concept: this.conceptQueue,
       similarity: this.similarityQueue,
-      clustering: this.clusteringQueue,
       insight: this.insightQueue,
     };
   }

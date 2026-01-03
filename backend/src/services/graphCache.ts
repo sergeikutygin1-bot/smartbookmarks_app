@@ -7,27 +7,23 @@ import { RedisCache, createCache } from './cache';
  * - Similar bookmarks: 30 min (embeddings are stable)
  * - Entities: 1 hour (updated when new entities extracted)
  * - Concepts: 1 hour (updated when new concepts created)
- * - Clusters: 6 hours (updated when clustering runs)
  * - Stats: 10 minutes (frequently changing)
  *
  * Cache invalidation triggers:
  * - Entity/concept creation: Clear respective caches
  * - Graph refresh: Clear all caches for that user
- * - Cluster merge: Clear cluster caches
  */
 export class GraphCacheService {
   // Separate cache instances for different data types with optimized TTLs
   private similarCache: RedisCache; // 30 minutes
   private entityCache: RedisCache; // 1 hour
   private conceptCache: RedisCache; // 1 hour
-  private clusterCache: RedisCache; // 6 hours
   private statsCache: RedisCache; // 10 minutes
 
   constructor() {
     this.similarCache = createCache('graph:similar:', 1800); // 30 min
     this.entityCache = createCache('graph:entities:', 3600); // 1 hour
     this.conceptCache = createCache('graph:concepts:', 3600); // 1 hour
-    this.clusterCache = createCache('graph:clusters:', 21600); // 6 hours
     this.statsCache = createCache('graph:stats:', 600); // 10 min
 
     console.log('[GraphCache] Initialized multi-tier cache strategy');
@@ -134,43 +130,6 @@ export class GraphCacheService {
   }
 
   /**
-   * Get cached cluster list
-   */
-  async getClusterList(userId: string, limit: number) {
-    const key = `${userId}:list:l${limit}`;
-    return this.clusterCache.get(key);
-  }
-
-  /**
-   * Cache cluster list
-   */
-  async setClusterList(userId: string, limit: number, data: any) {
-    const key = `${userId}:list:l${limit}`;
-    await this.clusterCache.set(key, data);
-  }
-
-  /**
-   * Get cached cluster details
-   */
-  async getClusterDetails(clusterId: string, userId: string, bookmarkLimit: number) {
-    const key = `${userId}:cluster:${clusterId}:l${bookmarkLimit}`;
-    return this.clusterCache.get(key);
-  }
-
-  /**
-   * Cache cluster details
-   */
-  async setClusterDetails(
-    clusterId: string,
-    userId: string,
-    bookmarkLimit: number,
-    data: any
-  ) {
-    const key = `${userId}:cluster:${clusterId}:l${bookmarkLimit}`;
-    await this.clusterCache.set(key, data);
-  }
-
-  /**
    * Get cached graph stats
    */
   async getStats(userId: string) {
@@ -214,15 +173,6 @@ export class GraphCacheService {
   }
 
   /**
-   * Invalidate cluster caches for a user
-   * Call this when clusters are created, updated, or merged
-   */
-  async invalidateClusterCaches(userId: string) {
-    await this.clusterCache.clear(`${userId}:*`);
-    console.log(`[GraphCache] Invalidated cluster caches for user ${userId}`);
-  }
-
-  /**
    * Invalidate stats cache for a user
    * Call this when graph structure changes significantly
    */
@@ -240,7 +190,6 @@ export class GraphCacheService {
       this.similarCache.clear(`${userId}:*`),
       this.entityCache.clear(`${userId}:*`),
       this.conceptCache.clear(`${userId}:*`),
-      this.clusterCache.clear(`${userId}:*`),
       this.statsCache.clear(userId),
     ]);
     console.log(`[GraphCache] Invalidated ALL graph caches for user ${userId}`);
@@ -250,12 +199,11 @@ export class GraphCacheService {
    * Get cache statistics for monitoring
    */
   async getCacheStats() {
-    const [similarStats, entityStats, conceptStats, clusterStats, statsStats] =
+    const [similarStats, entityStats, conceptStats, statsStats] =
       await Promise.all([
         this.similarCache.getStats(),
         this.entityCache.getStats(),
         this.conceptCache.getStats(),
-        this.clusterCache.getStats(),
         this.statsCache.getStats(),
       ]);
 
@@ -263,22 +211,19 @@ export class GraphCacheService {
       similar: similarStats,
       entities: entityStats,
       concepts: conceptStats,
-      clusters: clusterStats,
       stats: statsStats,
       overall: {
         totalSize:
           similarStats.size +
           entityStats.size +
           conceptStats.size +
-          clusterStats.size +
           statsStats.size,
         averageHitRate:
           (similarStats.hitRate +
             entityStats.hitRate +
             conceptStats.hitRate +
-            clusterStats.hitRate +
             statsStats.hitRate) /
-          5,
+          4,
       },
     };
   }
@@ -291,7 +236,7 @@ export class GraphCacheService {
     // This is a placeholder for cache warming logic
     // In production, you might:
     // 1. Pre-compute top entities
-    // 2. Pre-compute cluster summaries
+    // 2. Pre-compute top concepts
     // 3. Pre-compute graph stats
     console.log(`[GraphCache] Cache warming initiated for user ${userId}`);
   }

@@ -27,17 +27,48 @@ const entityColors = {
   location: 'text-teal-600',
 };
 
+const entityBgColors = {
+  person: 'bg-blue-50',
+  company: 'bg-green-50',
+  technology: 'bg-orange-50',
+  product: 'bg-pink-50',
+  location: 'bg-teal-50',
+};
+
+const entityBorderColors = {
+  person: 'border-blue-500 ring-blue-500',
+  company: 'border-green-500 ring-green-500',
+  technology: 'border-orange-500 ring-orange-500',
+  product: 'border-pink-500 ring-pink-500',
+  location: 'border-teal-500 ring-teal-500',
+};
+
+const entityHighlightColors = {
+  person: 'border-blue-400 ring-blue-300',
+  company: 'border-green-400 ring-green-300',
+  technology: 'border-orange-400 ring-orange-300',
+  product: 'border-pink-400 ring-pink-300',
+  location: 'border-teal-400 ring-teal-300',
+};
+
 export const EntityNode = memo(({ data, selected }: NodeProps<EntityNodeData>) => {
   const Icon = entityIcons[data.entityType] || Building2;
   const iconColor = entityColors[data.entityType] || 'text-gray-600';
+  const bgColor = entityBgColors[data.entityType] || 'bg-gray-50';
+  const borderColor = entityBorderColors[data.entityType] || 'border-gray-500 ring-gray-500';
+  const highlightColor = entityHighlightColors[data.entityType] || 'border-gray-400 ring-gray-300';
+  const isHighlighted = (data as any).isHighlighted;
 
   return (
     <div
-      className={`bg-gray-100 border rounded-lg p-2.5 shadow-sm min-w-[140px] max-w-[200px] transition-all ${
+      className={`border rounded-lg p-2.5 shadow-sm min-w-[140px] max-w-[200px] transition-all cursor-pointer ${
         selected
-          ? 'border-orange-500 shadow-md ring-2 ring-orange-500 ring-opacity-50'
-          : 'border-gray-300 hover:border-gray-400'
+          ? `${bgColor} ${borderColor} shadow-md ring-2 ring-opacity-50`
+          : isHighlighted
+          ? `bg-gray-100 ${highlightColor} shadow-lg ring-2 ring-opacity-60`
+          : 'bg-gray-100 border-gray-300 hover:border-gray-400 hover:shadow-md'
       }`}
+      title="Click to highlight connected bookmarks"
     >
       <Handle
         type="target"
@@ -69,7 +100,8 @@ export const EntityNode = memo(({ data, selected }: NodeProps<EntityNodeData>) =
 }, (prev, next) =>
   prev.selected === next.selected &&
   prev.data.name === next.data.name &&
-  prev.data.occurrenceCount === next.data.occurrenceCount
+  prev.data.occurrenceCount === next.data.occurrenceCount &&
+  (prev.data as any).isHighlighted === (next.data as any).isHighlighted
 );
 
 EntityNode.displayName = 'EntityNode';

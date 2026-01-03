@@ -2,6 +2,9 @@ import express, { Request, Response } from 'express';
 import { graphService } from '../services/graphService';
 import { graphCache } from '../services/graphCache';
 import { authMiddleware } from '../middleware/auth';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 const router = express.Router();
 
@@ -29,10 +32,68 @@ router.get('/bookmarks/:id/related', async (req: Request, res: Response) => {
       limit ? parseInt(limit as string) : 20
     );
 
+    // Also fetch entities and concepts connected to this bookmark
+    const [entityRelationships, conceptRelationships] = await Promise.all([
+      // Get entities mentioned in this bookmark
+      prisma.relationship.findMany({
+        where: {
+          userId,
+          sourceType: 'bookmark',
+          sourceId: id,
+          targetType: 'entity',
+        },
+        take: 20,
+      }),
+      // Get concepts this bookmark is about
+      prisma.relationship.findMany({
+        where: {
+          userId,
+          sourceType: 'bookmark',
+          sourceId: id,
+          targetType: 'concept',
+        },
+        take: 20,
+      }),
+    ]);
+
+    // Fetch the actual entity and concept data
+    const [entities, concepts] = await Promise.all([
+      entityRelationships.length > 0
+        ? prisma.entity.findMany({
+            where: {
+              id: { in: entityRelationships.map(rel => rel.targetId) },
+            },
+          })
+        : [],
+      conceptRelationships.length > 0
+        ? prisma.concept.findMany({
+            where: {
+              id: { in: conceptRelationships.map(rel => rel.targetId) },
+            },
+          })
+        : [],
+    ]);
+
+    // Create maps for quick lookup
+    const entityMap = new Map(entities.map(e => [e.id, e]));
+    const conceptMap = new Map(concepts.map(c => [c.id, c]));
+
     res.json({
       data: {
         bookmarkId: id,
         related,
+        entities: entityRelationships
+          .map(rel => ({
+            entity: entityMap.get(rel.targetId),
+            weight: rel.weight,
+          }))
+          .filter(e => e.entity), // Remove any not found
+        concepts: conceptRelationships
+          .map(rel => ({
+            concept: conceptMap.get(rel.targetId),
+            weight: rel.weight,
+          }))
+          .filter(c => c.concept), // Remove any not found
       },
     });
   } catch (error) {
@@ -161,100 +222,6 @@ router.get('/concepts/:id/related', async (req: Request, res: Response) => {
     const statusCode = error instanceof Error && error.message === 'Concept not found' ? 404 : 500;
     res.status(statusCode).json({
       error: 'Failed to find related concepts',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * GET /api/v1/graph/clusters
- * List auto-generated clusters
- *
- * Query params:
- * - limit: Max results (default: 20)
- */
-router.get('/clusters', async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.id;
-    const { limit } = req.query;
-
-    const clusters = await graphService.listClusters(
-      userId,
-      limit ? parseInt(limit as string) : 20
-    );
-
-    res.json({ data: clusters });
-  } catch (error) {
-    console.error('Error fetching clusters:', error);
-    res.status(500).json({
-      error: 'Failed to fetch clusters',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * GET /api/v1/graph/clusters/:id
- * Get cluster details with member bookmarks
- *
- * Query params:
- * - bookmarkLimit: Max bookmarks to return (default: 50)
- */
-router.get('/clusters/:id', async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.id;
-    const { id } = req.params;
-    const { bookmarkLimit } = req.query;
-
-    const cluster = await graphService.getClusterDetails(
-      id,
-      userId,
-      bookmarkLimit ? parseInt(bookmarkLimit as string) : 50
-    );
-
-    res.json({ data: cluster });
-  } catch (error) {
-    console.error('Error fetching cluster:', error);
-    const statusCode = error instanceof Error && error.message === 'Cluster not found' ? 404 : 500;
-    res.status(statusCode).json({
-      error: 'Failed to fetch cluster',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-});
-
-/**
- * POST /api/v1/graph/clusters/:id/merge
- * Merge two clusters
- *
- * Body:
- * - sourceClusterId: Cluster to merge and delete
- */
-router.post('/clusters/:id/merge', async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.id;
-    const { id: targetClusterId } = req.params;
-    const { sourceClusterId } = req.body;
-
-    if (!sourceClusterId) {
-      return res.status(400).json({
-        error: 'Invalid request',
-        message: 'sourceClusterId is required',
-      });
-    }
-
-    const result = await graphService.mergeClusters(
-      targetClusterId,
-      sourceClusterId,
-      userId
-    );
-
-    res.json({ data: result });
-  } catch (error) {
-    console.error('Error merging clusters:', error);
-    const statusCode = error instanceof Error && error.message.includes('not found') ? 404 : 500;
-    res.status(statusCode).json({
-      error: 'Failed to merge clusters',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }

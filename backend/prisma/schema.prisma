@@ -22,7 +22,6 @@ model User {
   tags          Tag[]
   entities      Entity[]
   concepts      Concept[]
-  clusters      Cluster[]
   relationships Relationship[]
   graphInsights GraphInsight[]
 
@@ -43,21 +42,18 @@ model Bookmark {
   metadata         Json?     @db.JsonB
   embedding        Unsupported("vector(1536)")?
   searchVector     Unsupported("tsvector")?     @map("search_vector")
-  clusterId        String?   @map("cluster_id")
   centralityScore  Float     @default(0.0) @map("centrality_score")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
   processedAt      DateTime? @map("processed_at")
 
   user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  cluster Cluster?        @relation(fields: [clusterId], references: [id], onDelete: SetNull)
   tags    BookmarkTag[]
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, updatedAt(sort: Desc)], name: "bookmarks_user_id_updated_at_idx")
   @@index([userId, contentType, updatedAt(sort: Desc)], name: "bookmarks_user_content_updated_idx")
   @@index([userId, status, updatedAt(sort: Desc)], name: "bookmarks_user_status_updated_idx")
-  @@index([clusterId], name: "bookmarks_cluster_idx")
   @@index([userId, centralityScore(sort: Desc)], name: "bookmarks_centrality_idx")
   @@index([domain])
   @@index([status])
@@ -134,25 +130,6 @@ model Concept {
   @@index([parentConceptId], name: "concepts_parent_id_idx")
   @@index([userId, occurrenceCount(sort: Desc)], name: "concepts_occurrence_idx")
   @@map("concepts")
-}
-
-model Cluster {
-  id                String                          @id @default(uuid())
-  userId            String                          @map("user_id")
-  name              String                          @db.VarChar(255)
-  description       String?                         @db.Text
-  centroidEmbedding Unsupported("vector(1536)")?    @map("centroid_embedding")
-  bookmarkCount     Int                             @default(0) @map("bookmark_count")
-  coherenceScore    Float?                          @map("coherence_score")
-  createdAt         DateTime                        @default(now()) @map("created_at")
-  updatedAt         DateTime                        @updatedAt @map("updated_at")
-
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bookmarks Bookmark[]
-
-  @@index([userId], name: "clusters_user_id_idx")
-  @@index([userId, coherenceScore(sort: Desc)], name: "clusters_coherence_idx")
-  @@map("clusters")
 }
 
 model Relationship {

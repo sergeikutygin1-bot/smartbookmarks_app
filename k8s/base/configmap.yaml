@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: smart-bookmarks-config
+  namespace: smart-bookmarks
+data:
+  # Application configuration
+  NODE_ENV: "production"
+  PORT: "3002"
+
+  # AI configuration
+  AI_MODEL: "gpt-3.5-turbo"
+  EMBEDDING_MODEL: "text-embedding-3-small"
+
+  # Cache TTLs (seconds)
+  CACHE_EMBEDDING_TTL: "86400"      # 24 hours
+  CACHE_SEARCH_TTL: "600"           # 10 minutes
+  CACHE_GRAPH_TTL: "1800"           # 30 minutes
+
+  # Queue configuration
+  QUEUE_ENRICHMENT_CONCURRENCY: "5"
+  QUEUE_GRAPH_CONCURRENCY: "3"
+
+  # Rate limiting
+  RATE_LIMIT_MAX: "60"
+  RATE_LIMIT_WINDOW: "60000"        # 1 minute in ms
+
+  # Clustering settings
+  CLUSTER_MIN_BOOKMARKS: "5"
+  CLUSTER_MIN_SIZE: "3"
+  CLUSTER_MAX_SIZE: "20"
+
+  # Performance tuning
+  DATABASE_POOL_MIN: "2"
+  DATABASE_POOL_MAX: "10"
+  DATABASE_IDLE_TIMEOUT: "30000"    # 30 seconds
+
+  # Logging
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: smart-bookmarks
+data:
+  NEXT_PUBLIC_API_URL: "https://api.smartbookmarks.app"
+  NEXT_TELEMETRY_DISABLED: "1"

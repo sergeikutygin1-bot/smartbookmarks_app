@@ -96,7 +96,6 @@ app.listen(PORT, () => {
   console.log(`   Related bookmarks: GET   http://localhost:${PORT}/api/v1/graph/bookmarks/:id/related`);
   console.log(`   List entities:     GET   http://localhost:${PORT}/api/v1/graph/entities`);
   console.log(`   List concepts:     GET   http://localhost:${PORT}/api/v1/graph/concepts`);
-  console.log(`   List clusters:     GET   http://localhost:${PORT}/api/v1/graph/clusters`);
   console.log(`   Graph stats:       GET   http://localhost:${PORT}/api/v1/graph/stats`);
   console.log(`\n🔍 Search & Admin:`);
   console.log(`   Search endpoint:  POST   http://localhost:${PORT}/search`);

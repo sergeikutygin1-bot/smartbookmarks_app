@@ -10,15 +10,20 @@ export interface BookmarkNodeData {
   url: string;
   domain?: string;
   contentType?: string;
+  isHighlighted?: boolean;
 }
 
 export const BookmarkNode = memo(({ data, selected }: NodeProps<BookmarkNodeData>) => {
+  const isHighlighted = data.isHighlighted;
+
   return (
     <div
-      className={`bg-white border rounded-lg p-3 shadow-sm min-w-[200px] max-w-[280px] transition-all ${
+      className={`border rounded-lg p-4 shadow-md min-w-[220px] max-w-[300px] transition-all ${
         selected
-          ? 'border-blue-500 shadow-md ring-2 ring-blue-500 ring-opacity-50'
-          : 'border-gray-300 hover:border-gray-400'
+          ? 'bg-blue-50 border-blue-500 shadow-lg ring-2 ring-blue-500 ring-opacity-50'
+          : isHighlighted
+          ? 'bg-white border-blue-400 shadow-lg ring-2 ring-blue-300 ring-opacity-60'
+          : 'bg-white border-gray-300 hover:border-gray-400 hover:shadow-md'
       }`}
     >
       <Handle
@@ -57,7 +62,8 @@ export const BookmarkNode = memo(({ data, selected }: NodeProps<BookmarkNodeData
   );
 }, (prev, next) =>
   prev.selected === next.selected &&
-  prev.data.title === next.data.title
+  prev.data.title === next.data.title &&
+  prev.data.isHighlighted === next.data.isHighlighted
 );
 
 BookmarkNode.displayName = 'BookmarkNode';

@@ -7,7 +7,7 @@ import { graphCache } from './graphCache';
  * Graph Service
  *
  * Business logic for knowledge graph operations.
- * Provides methods for exploring relationships, entities, concepts, and clusters.
+ * Provides methods for exploring relationships, entities, and concepts.
  *
  * Features:
  * - Multi-tier Redis caching with intelligent TTLs
@@ -411,134 +411,6 @@ export class GraphService {
   }
 
   /**
-   * List clusters
-   *
-   * @param userId - User ID for isolation
-   * @param limit - Max results (default: 20)
-   */
-  async listClusters(userId: string, limit: number = 20) {
-    // Check cache first
-    const cached = await graphCache.getClusterList(userId, limit);
-    if (cached) {
-      console.log(`[GraphService] Cache hit: cluster list for user ${userId}`);
-      return cached;
-    }
-
-    const clusters = await prisma.cluster.findMany({
-      where: { userId },
-      orderBy: { bookmarkCount: 'desc' },
-      take: limit,
-      include: {
-        _count: {
-          select: { bookmarks: true },
-        },
-      },
-    });
-
-    // Cache the result
-    await graphCache.setClusterList(userId, limit, clusters);
-
-    return clusters;
-  }
-
-  /**
-   * Get cluster details with member bookmarks
-   *
-   * @param clusterId - Cluster ID
-   * @param userId - User ID for isolation
-   * @param bookmarkLimit - Max bookmarks to return (default: 50)
-   */
-  async getClusterDetails(
-    clusterId: string,
-    userId: string,
-    bookmarkLimit: number = 50
-  ) {
-    // Check cache first
-    const cached = await graphCache.getClusterDetails(
-      clusterId,
-      userId,
-      bookmarkLimit
-    );
-    if (cached) {
-      console.log(`[GraphService] Cache hit: cluster details for ${clusterId}`);
-      return cached;
-    }
-
-    // Verify cluster ownership
-    const cluster = await prisma.cluster.findFirst({
-      where: { id: clusterId, userId },
-      include: {
-        bookmarks: {
-          take: bookmarkLimit,
-          orderBy: { centralityScore: 'desc' }, // Most central bookmarks first
-          include: {
-            tags: {
-              include: { tag: true },
-            },
-          },
-        },
-      },
-    });
-
-    if (!cluster) {
-      throw new Error('Cluster not found');
-    }
-
-    // Cache the result
-    await graphCache.setClusterDetails(clusterId, userId, bookmarkLimit, cluster);
-
-    return cluster;
-  }
-
-  /**
-   * Merge two clusters
-   *
-   * @param targetClusterId - Cluster to keep
-   * @param sourceClusterId - Cluster to merge and delete
-   * @param userId - User ID for isolation
-   */
-  async mergeClusters(
-    targetClusterId: string,
-    sourceClusterId: string,
-    userId: string
-  ) {
-    // Verify both clusters exist and are owned by user
-    const [targetCluster, sourceCluster] = await Promise.all([
-      prisma.cluster.findFirst({ where: { id: targetClusterId, userId } }),
-      prisma.cluster.findFirst({ where: { id: sourceClusterId, userId } }),
-    ]);
-
-    if (!targetCluster || !sourceCluster) {
-      throw new Error('One or both clusters not found');
-    }
-
-    // Move all bookmarks from source to target
-    await prisma.bookmark.updateMany({
-      where: { clusterId: sourceClusterId },
-      data: { clusterId: targetClusterId },
-    });
-
-    // Update target cluster bookmark count
-    const newBookmarkCount =
-      targetCluster.bookmarkCount + sourceCluster.bookmarkCount;
-    await prisma.cluster.update({
-      where: { id: targetClusterId },
-      data: { bookmarkCount: newBookmarkCount },
-    });
-
-    // Delete source cluster
-    await prisma.cluster.delete({
-      where: { id: sourceClusterId },
-    });
-
-    // Invalidate cluster caches
-    await graphCache.invalidateClusterCaches(userId);
-    await graphCache.invalidateStatsCaches(userId);
-
-    return { success: true, mergedCount: sourceCluster.bookmarkCount };
-  }
-
-  /**
    * Get graph statistics for user
    *
    * @param userId - User ID
@@ -554,14 +426,12 @@ export class GraphService {
     const [
       entityCount,
       conceptCount,
-      clusterCount,
       relationshipCount,
       topEntities,
       topConcepts,
     ] = await Promise.all([
       prisma.entity.count({ where: { userId } }),
       prisma.concept.count({ where: { userId } }),
-      prisma.cluster.count({ where: { userId } }),
       prisma.relationship.count({ where: { userId } }),
       prisma.entity.findMany({
         where: { userId },
@@ -581,7 +451,6 @@ export class GraphService {
       counts: {
         entities: entityCount,
         concepts: conceptCount,
-        clusters: clusterCount,
         relationships: relationshipCount,
       },
       topEntities,

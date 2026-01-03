@@ -1,0 +1,157 @@
+---
+# Frontend Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend-hpa
+  namespace: smart-bookmarks
+  labels:
+    app: smart-bookmarks
+    component: frontend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      policies:
+      - type: Percent
+        value: 50  # Scale down by max 50% of current pods
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0  # Scale up immediately
+      policies:
+      - type: Percent
+        value: 100  # Double pods if needed
+        periodSeconds: 30
+      - type: Pods
+        value: 2  # Or add 2 pods at a time
+        periodSeconds: 30
+      selectPolicy: Max
+---
+# Backend API Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend-api-hpa
+  namespace: smart-bookmarks
+  labels:
+    app: smart-bookmarks
+    component: backend-api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend-api
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  # Custom metric for queue depth (requires Prometheus Adapter)
+  # - type: Pods
+  #   pods:
+  #     metric:
+  #       name: bullmq_queue_waiting_jobs
+  #       selector:
+  #         matchLabels:
+  #           queue: enrichment-jobs
+  #     target:
+  #       type: AverageValue
+  #       averageValue: "10"  # Scale if >10 jobs waiting per pod
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      - type: Pods
+        value: 2
+        periodSeconds: 30
+      selectPolicy: Max
+---
+# Pod Disruption Budget - Frontend
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: smart-bookmarks
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: smart-bookmarks
+      component: frontend
+---
+# Pod Disruption Budget - Backend API
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-api-pdb
+  namespace: smart-bookmarks
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: smart-bookmarks
+      component: backend-api
+---
+# Pod Disruption Budget - Enrichment Worker
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: enrichment-worker-pdb
+  namespace: smart-bookmarks
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: smart-bookmarks
+      component: enrichment-worker
+---
+# Pod Disruption Budget - Graph Worker
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graph-worker-pdb
+  namespace: smart-bookmarks
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: smart-bookmarks
+      component: graph-worker

@@ -1,16 +1,14 @@
 'use client';
 
 import { GraphCanvas } from '@/components/graph/GraphView/GraphCanvas';
-import { ClusterView } from '@/components/graph/ClusterView/ClusterView';
 import { InsightsView } from '@/components/graph/InsightsView/InsightsView';
 import { DiscoveryMode } from '@/components/graph/DiscoveryMode/DiscoveryMode';
 import { useGraphStore } from '@/store/graphStore';
 
-type ViewMode = 'graph' | 'clusters' | 'insights' | 'discovery';
+type ViewMode = 'graph' | 'insights' | 'discovery';
 
 const VIEW_TABS: { id: ViewMode; label: string; description: string }[] = [
-  { id: 'graph', label: 'Graph', description: 'Network visualization' },
-  { id: 'clusters', label: 'Clusters', description: 'Topic groups' },
+  { id: 'graph', label: 'Graph', description: 'Network visualization & clusters' },
   { id: 'insights', label: 'Insights', description: 'Trends & patterns' },
   { id: 'discovery', label: 'Discovery', description: 'Explore connections' },
 ];
@@ -50,7 +48,6 @@ export default function GraphPage() {
       {/* View Content */}
       <div className="h-[calc(100vh-140px)]">
         {currentView === 'graph' && <GraphCanvas />}
-        {currentView === 'clusters' && <ClusterView />}
         {currentView === 'insights' && <InsightsView />}
         {currentView === 'discovery' && <DiscoveryMode />}
       </div>

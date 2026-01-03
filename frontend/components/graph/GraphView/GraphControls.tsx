@@ -9,26 +9,6 @@ export function GraphControls() {
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-3 space-y-3">
-      {/* View mode selector */}
-      <div className="space-y-1.5">
-        <div className="text-xs font-medium text-gray-700">View</div>
-        <div className="flex gap-1">
-          {['graph', 'clusters', 'insights'].map((view) => (
-            <button
-              key={view}
-              onClick={() => setFilter('view', view as any)}
-              className={`text-xs px-2 py-1 rounded transition-colors ${
-                filters.view === view
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              {view.charAt(0).toUpperCase() + view.slice(1)}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Node type filters */}
       <div className="space-y-1.5">
         <div className="text-xs font-medium text-gray-700">Show</div>

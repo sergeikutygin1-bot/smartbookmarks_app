@@ -1,0 +1,436 @@
+# Production Docker Compose Configuration
+# Security-hardened with resource limits and monitoring
+# DO NOT expose database ports in production
+
+services:
+  # PostgreSQL Database with pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: smartbookmarks_postgres_prod
+    restart: unless-stopped
+
+    # Security: Do NOT expose ports in production
+    # Access only through internal network
+    # ports:
+    #   - "5432:5432"  # NEVER EXPOSE IN PRODUCTION
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-smartbookmarks}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB: ${POSTGRES_DB:-smartbookmarks}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.utf8"
+
+    secrets:
+      - postgres_password
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres.conf:/etc/postgresql/postgresql.conf:ro
+      - ./backups:/backups  # For automated backups
+
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c max_connections=100
+      -c shared_buffers=512MB
+      -c effective_cache_size=2GB
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smartbookmarks}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Security: Run as non-root user
+    user: postgres
+
+    networks:
+      - backend
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis for caching and job queues
+  redis:
+    image: redis:7-alpine
+    container_name: smartbookmarks_redis_prod
+    restart: unless-stopped
+
+    # Security: Do NOT expose ports in production
+    # ports:
+    #   - "6379:6379"  # NEVER EXPOSE IN PRODUCTION
+
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+
+    command: >
+      redis-server /usr/local/etc/redis/redis.conf
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 768M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+    # Security: Run as non-root user
+    user: redis
+
+    networks:
+      - backend
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Backend API Server
+  backend-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      cache_from:
+        - smartbookmarks/backend:latest
+
+    image: smartbookmarks/backend:${VERSION:-latest}
+    container_name: smartbookmarks_backend_prod
+    restart: unless-stopped
+
+    # Internal port only (accessed through Caddy)
+    expose:
+      - "3002"
+
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-smartbookmarks}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-smartbookmarks}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET_FILE=/run/secrets/jwt_secret
+      - JWT_REFRESH_SECRET_FILE=/run/secrets/jwt_refresh_secret
+      - OPENAI_API_KEY_FILE=/run/secrets/openai_api_key
+      - AI_MODEL=${AI_MODEL:-gpt-3.5-turbo}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+
+    secrets:
+      - jwt_secret
+      - jwt_refresh_secret
+      - openai_api_key
+
+    volumes:
+      - backend_data:/app/.data
+      - ./logs/backend:/app/logs
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    command: >
+      sh -c "npx prisma migrate deploy &&
+             node dist/server.js"
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+    networks:
+      - backend
+      - frontend
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Enrichment Worker
+  backend-worker:
+    image: smartbookmarks/backend:${VERSION:-latest}
+    container_name: smartbookmarks_worker_prod
+    restart: unless-stopped
+
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-smartbookmarks}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-smartbookmarks}
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY_FILE=/run/secrets/openai_api_key
+      - AI_MODEL=${AI_MODEL:-gpt-3.5-turbo}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_CONCURRENCY=${ENRICHMENT_WORKER_CONCURRENCY:-5}
+
+    secrets:
+      - openai_api_key
+
+    volumes:
+      - backend_data:/app/.data
+      - ./logs/worker:/app/logs
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend-api:
+        condition: service_healthy
+
+    command: node dist/workers/enrichmentWorker.js
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 768M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    networks:
+      - backend
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Graph Processing Worker
+  graph-worker:
+    image: smartbookmarks/backend:${VERSION:-latest}
+    container_name: smartbookmarks_graph_worker_prod
+    restart: unless-stopped
+
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-smartbookmarks}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-smartbookmarks}
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY_FILE=/run/secrets/openai_api_key
+      - AI_MODEL=${AI_MODEL:-gpt-3.5-turbo}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - WORKER_CONCURRENCY=${GRAPH_WORKER_CONCURRENCY:-3}
+
+    secrets:
+      - openai_api_key
+
+    volumes:
+      - backend_data:/app/.data
+      - ./logs/graph-worker:/app/logs
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend-api:
+        condition: service_healthy
+
+    command: node dist/workers/graphWorker.js
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 768M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    networks:
+      - backend
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Frontend Next.js Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      cache_from:
+        - smartbookmarks/frontend:latest
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://api.yourdomain.com}
+
+    image: smartbookmarks/frontend:${VERSION:-latest}
+    container_name: smartbookmarks_frontend_prod
+    restart: unless-stopped
+
+    # Internal port only (accessed through Caddy)
+    expose:
+      - "3000"
+
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # NEXT_PUBLIC_* vars must be set at build time
+
+    depends_on:
+      backend-api:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    networks:
+      - frontend
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Caddy Reverse Proxy with Automatic SSL
+  caddy:
+    image: caddy:2-alpine
+    container_name: smartbookmarks_caddy
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./logs/caddy:/var/log/caddy
+
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - EMAIL=${SSL_EMAIL:-admin@localhost}
+
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend-api:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+    networks:
+      - frontend
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Docker Secrets for sensitive data
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  jwt_refresh_secret:
+    file: ./secrets/jwt_refresh_secret.txt
+  openai_api_key:
+    file: ./secrets/openai_api_key.txt
+
+# Named volumes for data persistence
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  backend_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+# Network separation for security
+networks:
+  frontend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  backend:
+    driver: bridge
+    internal: true  # No external access
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24

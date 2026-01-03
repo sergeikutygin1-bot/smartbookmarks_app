@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -13,13 +13,15 @@ import {
   Edge,
   Node,
   Panel,
+  NodeMouseHandler,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
 import { BookmarkNode } from './BookmarkNode';
 import { ConceptNode } from './ConceptNode';
 import { EntityNode } from './EntityNode';
-import { useGraphData } from '@/hooks/graph/useGraphData';
+import { useGraphData, saveNodePosition } from '@/hooks/graph/useGraphData';
+import { useGraphStore } from '@/store/graphStore';
 import { GraphControls } from './GraphControls';
 
 // Define custom node types
@@ -31,9 +33,25 @@ const nodeTypes = {
 
 export function GraphCanvas() {
   const { data, isLoading, error } = useGraphData();
+  const {
+    setSelectedNode,
+    setHighlightedNodes,
+    clearHighlights,
+    highlightedNodeIds,
+    addHistoryEntry,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+  } = useGraphStore();
+
 
   const [nodes, setNodes, onNodesChange] = useNodesState(data?.nodes || []);
   const [edges, setEdges, onEdgesChange] = useEdgesState(data?.edges || []);
+  const [nodePositionBeforeDrag, setNodePositionBeforeDrag] = useState<{
+    id: string;
+    position: { x: number; y: number };
+  } | null>(null);
 
   // Update nodes and edges when data is loaded
   useEffect(() => {
@@ -43,9 +61,124 @@ export function GraphCanvas() {
     }
   }, [data, setNodes, setEdges]);
 
+  // Update node data when highlights change
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          isHighlighted: highlightedNodeIds.includes(node.id),
+        },
+      }))
+    );
+  }, [highlightedNodeIds, setNodes]);
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const isCtrlOrCmd = isMac ? event.metaKey : event.ctrlKey;
+
+      // Undo: Ctrl+Z or Cmd+Z
+      if (isCtrlOrCmd && event.key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        if (canUndo()) {
+          const entry = undo();
+          if (entry && entry.type === 'position') {
+            // Restore old position
+            setNodes((nds) =>
+              nds.map((node) =>
+                node.id === entry.nodeId
+                  ? { ...node, position: entry.oldPosition }
+                  : node
+              )
+            );
+            // Update localStorage
+            saveNodePosition(entry.nodeId, entry.oldPosition);
+          }
+        }
+      }
+
+      // Redo: Ctrl+Shift+Z or Cmd+Shift+Z
+      if (isCtrlOrCmd && event.key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        if (canRedo()) {
+          const entry = redo();
+          if (entry && entry.type === 'position') {
+            // Restore new position
+            setNodes((nds) =>
+              nds.map((node) =>
+                node.id === entry.nodeId
+                  ? { ...node, position: entry.newPosition }
+                  : node
+              )
+            );
+            // Update localStorage
+            saveNodePosition(entry.nodeId, entry.newPosition);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo, canUndo, canRedo, setNodes]);
+
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
     [setEdges]
+  );
+
+  // Handle node click to highlight connected nodes
+  const handleNodeClick: NodeMouseHandler = useCallback(
+    (event, node) => {
+      setSelectedNode(node.id);
+
+      // Highlight all connected nodes (bookmarks, concepts, and entities)
+      const connectedNodeIds = edges
+        .filter((edge) => edge.source === node.id || edge.target === node.id)
+        .map((edge) => (edge.source === node.id ? edge.target : edge.source));
+
+      setHighlightedNodes(connectedNodeIds);
+    },
+    [edges, setSelectedNode, setHighlightedNodes]
+  );
+
+  // Handle pane click to clear selection and highlights
+  const handlePaneClick = useCallback(() => {
+    setSelectedNode(null);
+    clearHighlights();
+  }, [setSelectedNode, clearHighlights]);
+
+  // Track position before drag starts
+  const handleNodeDragStart = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      setNodePositionBeforeDrag({
+        id: node.id,
+        position: { ...node.position },
+      });
+    },
+    []
+  );
+
+  // Save node positions when dragged and add to history
+  const handleNodeDragStop = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (nodePositionBeforeDrag && nodePositionBeforeDrag.id === node.id) {
+        // Add to history
+        addHistoryEntry({
+          type: 'position',
+          nodeId: node.id,
+          oldPosition: nodePositionBeforeDrag.position,
+          newPosition: { ...node.position },
+          timestamp: Date.now(),
+        });
+      }
+      saveNodePosition(node.id, node.position);
+      setNodePositionBeforeDrag(null);
+    },
+    [nodePositionBeforeDrag, addHistoryEntry]
   );
 
   // Apply force-directed layout
@@ -81,13 +214,17 @@ export function GraphCanvas() {
   }
 
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
+        onNodeDragStart={handleNodeDragStart}
+        onNodeDragStop={handleNodeDragStop}
         nodeTypes={nodeTypes}
         proOptions={proOptions}
         fitView

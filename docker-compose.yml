@@ -1,7 +1,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: smartbookmarks_db
+    container_name: smartbookmarks_postgres
     environment:
       POSTGRES_USER: smartbookmarks
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password}
@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_v2:/var/lib/postgresql/data
       - ./postgres.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
@@ -155,9 +155,7 @@ services:
       - smartbookmarks
 
 volumes:
-  postgres_data:
-    external: true
-    name: smart_bookmarks_v2_postgres_data
+  postgres_data_v2:
   redis_data:
   backend_data:
 
