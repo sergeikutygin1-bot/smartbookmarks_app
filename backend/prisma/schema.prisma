@@ -18,37 +18,42 @@ model User {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  bookmarks Bookmark[]
-  tags      Tag[]
+  bookmarks     Bookmark[]
+  tags          Tag[]
+  entities      Entity[]
+  concepts      Concept[]
+  relationships Relationship[]
 
   @@map("users")
 }
 
 model Bookmark {
-  id           String    @id @default(uuid())
-  userId       String    @map("user_id")
-  url          String
-  title        String    @db.VarChar(500)
-  domain       String    @db.VarChar(255)
-  source       String?   @db.VarChar(255)
-  summary      String?   @db.Text
-  keyPoints    String[]  @map("key_points")
-  contentType  String    @default("other") @map("content_type") @db.VarChar(50)
-  status       String    @default("pending") @db.VarChar(50)
-  metadata     Json?     @db.JsonB
-  embedding    Unsupported("vector(1536)")?
-  searchVector Unsupported("tsvector")?     @map("search_vector")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  processedAt  DateTime? @map("processed_at")
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  url              String
+  title            String    @db.VarChar(500)
+  domain           String    @db.VarChar(255)
+  source           String?   @db.VarChar(255)
+  summary          String?   @db.Text
+  keyPoints        String[]  @map("key_points")
+  contentType      String    @default("other") @map("content_type") @db.VarChar(50)
+  status           String    @default("pending") @db.VarChar(50)
+  metadata         Json?     @db.JsonB
+  embedding        Unsupported("vector(1536)")?
+  searchVector     Unsupported("tsvector")?     @map("search_vector")
+  centralityScore  Float     @default(0.0) @map("centrality_score")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  processedAt      DateTime? @map("processed_at")
 
-  user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tags BookmarkTag[]
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tags    BookmarkTag[]
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, updatedAt(sort: Desc)], name: "bookmarks_user_id_updated_at_idx")
   @@index([userId, contentType, updatedAt(sort: Desc)], name: "bookmarks_user_content_updated_idx")
   @@index([userId, status, updatedAt(sort: Desc)], name: "bookmarks_user_status_updated_idx")
+  @@index([userId, centralityScore(sort: Desc)], name: "bookmarks_centrality_idx")
   @@index([domain])
   @@index([status])
   @@map("bookmarks")
@@ -81,4 +86,70 @@ model BookmarkTag {
   @@index([tagId])
   @@index([bookmarkId])
   @@map("bookmark_tags")
+}
+
+// Knowledge Graph Models
+
+model Entity {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  name            String   @db.VarChar(255)
+  normalizedName  String   @map("normalized_name") @db.VarChar(255)
+  entityType      String   @map("entity_type") @db.VarChar(50)
+  occurrenceCount Int      @default(1) @map("occurrence_count")
+  metadata        Json?    @db.JsonB
+  firstSeenAt     DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt      DateTime @default(now()) @map("last_seen_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, normalizedName, entityType])
+  @@index([userId, entityType], name: "entities_user_id_type_idx")
+  @@index([userId, occurrenceCount(sort: Desc)], name: "entities_occurrence_idx")
+  @@index([normalizedName], name: "entities_normalized_name_idx")
+  @@map("entities")
+}
+
+model Concept {
+  id              String                          @id @default(uuid())
+  userId          String                          @map("user_id")
+  name            String                          @db.VarChar(255)
+  normalizedName  String                          @map("normalized_name") @db.VarChar(255)
+  parentConceptId String?                         @map("parent_concept_id")
+  embedding       Unsupported("vector(1536)")?
+  occurrenceCount Int                             @default(1) @map("occurrence_count")
+  createdAt       DateTime                        @default(now()) @map("created_at")
+
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentConcept Concept?  @relation("ConceptHierarchy", fields: [parentConceptId], references: [id], onDelete: SetNull)
+  childConcepts Concept[] @relation("ConceptHierarchy")
+
+  @@unique([userId, normalizedName])
+  @@index([userId], name: "concepts_user_id_idx")
+  @@index([parentConceptId], name: "concepts_parent_id_idx")
+  @@index([userId, occurrenceCount(sort: Desc)], name: "concepts_occurrence_idx")
+  @@map("concepts")
+}
+
+model Relationship {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  sourceType       String   @map("source_type") @db.VarChar(20)
+  sourceId         String   @map("source_id")
+  targetType       String   @map("target_type") @db.VarChar(20)
+  targetId         String   @map("target_id")
+  relationshipType String   @map("relationship_type") @db.VarChar(50)
+  weight           Float    @default(1.0)
+  metadata         Json?    @db.JsonB
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceType, sourceId, targetType, targetId, relationshipType])
+  @@index([userId, sourceType, sourceId], name: "relationships_user_source_idx")
+  @@index([userId, targetType, targetId], name: "relationships_user_target_idx")
+  @@index([userId, relationshipType], name: "relationships_type_idx")
+  @@index([userId, relationshipType, weight(sort: Desc)], name: "relationships_weight_idx")
+  @@index([userId, sourceType, sourceId, targetType, targetId], name: "relationships_source_target_idx")
+  @@map("relationships")
 }

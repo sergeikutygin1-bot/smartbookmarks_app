@@ -4,348 +4,516 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Smart Bookmark is an AI-powered universal content capture and organization application. Users can save any digital content (articles, videos, social media posts, PDFs) by pasting URLs, and the app automatically extracts metadata, generates summaries, assigns tags, and enables semantic search.
+Smart Bookmark is an AI-powered universal content capture and organization application with an advanced knowledge graph feature. Users can save content by pasting URLs, and the app automatically extracts metadata, generates summaries, assigns tags, creates embeddings for semantic search, and builds a knowledge graph showing relationships between bookmarks, concepts, and entities.
 
-**Current Status:** This is a greenfield project with comprehensive documentation but no implementation yet. Phase 1 (MVP) focuses on web-first deployment.
+**Current Status:** Phase 4 complete. Core features implemented including enrichment pipeline, knowledge graph visualization, AI agents, and production-ready infrastructure. All services run in Docker containers.
 
 ## Architecture
 
-### High-Level System Design
+### Three-Tier System
 
-The application follows a three-tier architecture:
+1. **Frontend (Next.js 14)** - React Flow-based graph visualization
+2. **Backend (Node.js/Express)** - RESTful API with agentic AI processing
+3. **Data Layer** - PostgreSQL with pgvector + Redis for caching/queues
 
-1. **Frontend (Next.js 14)** — Apple Notes-inspired two-panel interface with inline editing and auto-save
-2. **Backend (Node.js/Express/Fastify)** — RESTful API with agentic AI processing pipeline
-3. **Data Layer** — PostgreSQL with pgvector extension for embeddings, Redis for caching/job queue
+### Knowledge Graph Architecture
 
-### Key Architectural Patterns
+**5 Core Node Types:**
+- **Bookmarks** - User-saved content
+- **Concepts** - Abstract topics (e.g., "Machine Learning")
+- **Entities** - Named entities (people, companies, technologies)
+- **Tags** - User-created labels
+- **Clusters** - Auto-generated bookmark groups
 
-**Agentic Processing Framework:** The backend uses specialized "agents" that work independently:
-- **Orchestrator Agent** — Coordinates the processing pipeline
-- **Extractor Agent** — Fetches and parses content from URLs (supports articles, YouTube, Twitter, PDFs, etc.)
-- **Analyzer Agent** — Uses GPT-4/3.5 to generate summaries and key points
-- **Tagger Agent** — Suggests relevant tags using LLM + keyword extraction
-- **Embedder Agent** — Creates vector embeddings for semantic search
+**7 Relationship Types:**
+- `similar_to` (Bookmark → Bookmark) - Cosine similarity
+- `mentions` (Bookmark → Entity) - TF-IDF relevance
+- `about` (Bookmark → Concept) - LLM confidence
+- `has_tag` (Bookmark → Tag) - User-applied
+- `belongs_to_cluster` (Bookmark → Cluster) - Distance from centroid
+- `related_to` (Concept → Concept) - Co-occurrence
+- `entity_in_concept` (Entity → Concept) - Contextual relevance
 
-**Asynchronous Processing:** Bookmark creation returns immediately; heavy AI processing happens in background via BullMQ job queue.
+### Agentic Processing Pipeline
 
-**Dual Search Strategy:**
-- PostgreSQL full-text search for keyword matching
-- pgvector semantic search for conceptual queries
-- Hybrid approach merges both with weighted ranking
+**Enrichment Agents** (real-time, per bookmark):
+- **Extractor Agent** - Fetches and parses content from URLs
+- **Analyzer Agent** - Generates summaries via GPT
+- **Tagger Agent** - Suggests tags using LLM
+- **Embedder Agent** - Creates vector embeddings
 
-## Tech Stack
+**Graph Agents** (real-time, per bookmark):
+- **Entity Extractor Agent** - Extracts named entities (hybrid spaCy + GPT)
+- **Concept Analyzer Agent** - Identifies abstract topics
+- **Similarity Computer** - Finds similar bookmarks via pgvector
 
-### Frontend
-- **Framework:** Next.js 14 with App Router
-- **Language:** TypeScript
-- **Styling:** Tailwind CSS (minimal, Apple Notes aesthetic)
-- **State Management:**
-  - React Query (@tanstack/react-query) for server state
-  - Zustand for UI state (selected bookmark)
-  - Local state for forms with auto-save
-- **Authentication:** NextAuth.js with JWT sessions
-
-### Backend
-- **Runtime:** Node.js
-- **Framework:** Express or Fastify
-- **Database:** PostgreSQL 14+ with pgvector extension
-- **Cache/Queue:** Redis + BullMQ
-- **AI Services:** OpenAI API (GPT-4/3.5-turbo, text-embedding-ada-002)
-- **Authentication:** JWT with bcrypt for password hashing
-
-### Key Libraries
-- **Frontend:** framer-motion, react-hook-form, zod, date-fns, lucide-react
-- **Backend:** Readability (content extraction), youtube-transcript-api, pdf-parse
-
-## Project Structure
-
-The project is not yet initialized. Expected structure:
-
-```
-smart_bookmarks_v2/
-├── docs/                    # Comprehensive product & technical docs (already present)
-├── frontend/                # Next.js application (to be created)
-│   └── src/
-│       ├── app/            # Next.js App Router pages
-│       ├── components/     # React components (ui/, bookmarks/, search/, tags/)
-│       ├── hooks/          # Custom React hooks (useAutoSave, useEnrich, etc.)
-│       ├── lib/            # API client, utilities, validators
-│       └── store/          # Zustand stores
-├── backend/                # Node.js API server (to be created)
-│   └── src/
-│       ├── routes/         # API route handlers
-│       ├── services/       # Business logic services
-│       ├── agents/         # Agentic processing (orchestrator, extractor, analyzer, etc.)
-│       ├── db/             # Database migrations, models
-│       └── workers/        # BullMQ background job processors
-└── .env.example            # Environment variables template
-```
-
-## Database Schema (Key Tables)
-
-### users
-- `id` (UUID), `email`, `password_hash`, `google_id`, `created_at`, `updated_at`
-
-### bookmarks
-- `id` (UUID), `user_id` (FK), `url`, `title`, `domain`, `summary`, `content_type`
-- `metadata` (JSONB) — Flexible type-specific data
-- `embedding` (VECTOR(1536)) — For semantic search
-- `search_vector` (TSVECTOR) — For full-text search
-- `status` — pending | processing | completed | failed
-- `created_at`, `updated_at`, `processed_at`
-
-### tags
-- `id` (UUID), `user_id` (FK), `name`, `normalized_name`, `color`, `created_at`
-
-### bookmark_tags (junction table)
-- `bookmark_id` (FK), `tag_id` (FK), `auto_generated` (boolean)
-
-**Critical Indexes:**
-- GIN index on `search_vector` for full-text search
-- IVFFlat/HNSW index on `embedding` for vector similarity
-- Composite index on `(user_id, created_at DESC)` for bookmark lists
-
-## API Design
-
-All endpoints under `/api/v1/` with RESTful conventions.
-
-### Authentication
-- `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/refresh`
-- `GET /auth/me`
-- `POST /auth/google` (OAuth)
-
-### Bookmarks
-- `GET /bookmarks` — List with filters (query params: `q`, `type`, `tags`, `status`, `cursor`, `limit`)
-- `GET /bookmarks/:id`
-- `POST /bookmarks` — Create (empty body `{}` creates blank bookmark)
-- `PATCH /bookmarks/:id` — Update (partial fields)
-- `DELETE /bookmarks/:id`
-- `POST /bookmarks/:id/enrich` — AI-powered metadata extraction
-
-### Tags
-- `GET /tags`, `POST /tags`, `PATCH /tags/:id`, `DELETE /tags/:id`
-
-### Search
-- `GET /search?q=<query>&mode=keyword|semantic`
-
-**Response Format:** Consistent envelope with `data` for success, `error` for failures.
-
-## Frontend UI Philosophy
-
-**Design Inspiration:** Apple Notes — minimal, native-feeling, distraction-free.
-
-**Key Principles:**
-- **Two-panel layout:** Sidebar (1/5 width) with search + list, Note editor (4/5 width)
-- **Inline editing:** No separate view/edit modes; click to edit any field directly
-- **Auto-save:** Changes persist automatically after 500ms debounce
-- **Minimal aesthetic:** White background, black text, subtle gray borders only
-- **System fonts:** `-apple-system, BlinkMacSystemFont, Segoe UI, Roboto`
-
-**Color Palette:**
-- Background: `#FFFFFF`
-- Text Primary: `#000000`
-- Text Secondary: `#86868B`
-- Border: `#E5E5E5`
-- Accent: `#007AFF` (for interactive elements)
-
-**Core Components:**
-- `TwoPanel` — Root layout wrapper
-- `Sidebar` — Search input + BookmarkList
-- `NoteEditor` — Shows BookmarkNote for selected item
-- `BookmarkNote` — Editable fields (title, link, source, tags, summary)
-- `EnrichButton` — Triggers AI metadata extraction (sparkles icon)
-- `AutoSaveIndicator` — Shows "Saving..." → "Saved" feedback
-
-### UI Component Library
-
-**Use shadcn/ui for all base UI components.** shadcn/ui provides accessible, customizable components that align perfectly with our minimal design aesthetic.
-
-**Installation & Usage:**
-- Install shadcn/ui: `npx shadcn-ui@latest init`
-- Add components as needed: `npx shadcn-ui@latest add <component>`
-- Components are copied into `src/components/ui/` and fully customizable
-- All components are built on Radix UI primitives (accessible by default)
-
-**Recommended shadcn/ui Components:**
-- `Input` — Text inputs with variants for search, URLs, etc.
-- `Button` — Minimal button styles (use "ghost" variant for icon buttons)
-- `Badge` — For tags display
-- `Separator` — For subtle dividers between sections
-- `Textarea` — For multi-line summary/notes field
-- `Popover` — For context menus and tag suggestions
-- `Command` — For search with keyboard navigation (⌘K)
-- `ScrollArea` — For bookmark list scrolling
-- `Toast` — For save confirmations and error messages
-
-**Customization Guidelines:**
-- Modify `tailwind.config.ts` to use our minimal color palette
-- Override default styles to match Apple Notes aesthetic
-- Remove heavy shadows and rounded corners (use subtle borders instead)
-- Keep animations minimal (100-200ms transitions only)
+**Batch Agents** (scheduled, per user):
+- **Cluster Generator Agent** - Groups bookmarks using K-means clustering
 
 ## Development Commands
 
-This project is not yet initialized. Once setup is complete, expected commands:
+### Docker Infrastructure (Primary Development Method)
 
-### Frontend
-- `npm run dev` — Start Next.js dev server (port 3000)
-- `npm run build` — Production build
-- `npm run lint` — Run ESLint
-- `npm test` — Run Jest tests
+All services run in Docker. **Never run services directly on host.**
 
-### Backend
-- `npm run dev` — Start API server with hot reload (port 3001)
-- `npm run migrate` — Run database migrations
-- `npm run worker` — Start BullMQ background workers
-- `npm test` — Run tests
+```bash
+# Start all services
+docker-compose up -d
 
-### Database
-- PostgreSQL must have `pgvector` extension installed
-- Migrations use Prisma Migrate or node-pg-migrate
+# View logs
+docker-compose logs -f
+docker logs -f smartbookmarks_backend
+docker logs -f smartbookmarks_graph_worker
+
+# Restart specific services
+docker-compose restart backend-api
+docker-compose restart graph-worker
+
+# Stop all services
+docker-compose down
+```
+
+### Backend Commands (via Docker)
+
+```bash
+# Development server (auto-restart on file changes)
+# Already running via docker-compose, no manual start needed
+
+# Run backfill (process existing bookmarks through graph pipeline)
+docker exec smartbookmarks_backend npm run backfill
+docker exec smartbookmarks_backend npm run backfill -- --limit 100
+docker exec smartbookmarks_backend npm run backfill -- --user-id <uuid>
+
+# Performance analysis
+docker exec smartbookmarks_backend npm run analyze-performance
+
+# Testing
+docker exec smartbookmarks_backend npm run test:vector
+docker exec smartbookmarks_backend npm run test:db-performance
+docker exec smartbookmarks_backend npm run test:cache
+
+# Database migrations
+docker exec smartbookmarks_backend npx prisma migrate dev
+docker exec smartbookmarks_backend npx prisma generate
+
+# Access PostgreSQL
+docker exec -it smartbookmarks_db psql -U smartbookmarks -d smartbookmarks
+
+# Clear Redis cache
+docker exec smartbookmarks_redis redis-cli FLUSHALL
+```
+
+### Frontend Commands
+
+```bash
+# Development server runs automatically via docker-compose
+# Access at http://localhost:3000
+
+# Build production
+docker exec smartbookmarks_frontend npm run build
+```
+
+### Database Scripts
+
+```bash
+# Test scripts (run from backend container)
+docker exec smartbookmarks_backend npx tsx scripts/test-clustering.ts
+docker exec smartbookmarks_backend npx tsx scripts/create-synthetic-clusters.ts
+docker exec smartbookmarks_backend npx tsx scripts/populate-graph-data.ts
+```
+
+## Project Structure
+
+```
+smart_bookmarks_v2/
+├── frontend/
+│   ├── app/
+│   │   ├── graph/page.tsx              # Knowledge graph page
+│   │   └── bookmarks/                  # Bookmark management pages
+│   ├── components/
+│   │   ├── graph/                      # Graph visualization components
+│   │   │   ├── GraphView/              # React Flow canvas with custom nodes
+│   │   │   └── ClusterView/            # Auto-generated topic clusters
+│   │   └── bookmarks/                  # Bookmark UI components
+│   ├── hooks/
+│   │   └── graph/useGraphData.ts       # Graph data fetching hook
+│   └── store/
+│       └── graphStore.ts               # Zustand store for graph UI state
+│
+├── backend/
+│   ├── src/
+│   │   ├── agents/                     # AI processing agents
+│   │   │   ├── EntityExtractorAgent.ts
+│   │   │   ├── ConceptAnalyzerAgent.ts
+│   │   │   └── ClusterGeneratorAgent.ts
+│   │   ├── routes/
+│   │   │   ├── bookmarks.ts
+│   │   │   ├── auth.ts
+│   │   │   └── graph.ts                # Graph API endpoints
+│   │   ├── services/
+│   │   │   ├── graphService.ts         # Graph query logic
+│   │   │   └── graphCache.ts           # Redis caching layer
+│   │   ├── queues/
+│   │   │   ├── enrichmentQueue.ts      # Enrichment job queue
+│   │   │   └── graphQueue.ts           # Graph processing queues (5 queues)
+│   │   ├── workers/
+│   │   │   ├── enrichmentWorker.ts     # Processes enrichment jobs
+│   │   │   └── graphWorker.ts          # Processes graph jobs
+│   │   └── middleware/
+│   │       └── auth.ts                 # JWT authentication
+│   ├── scripts/
+│   │   ├── backfill-graph-data.ts      # Backfill existing bookmarks
+│   │   ├── analyze-query-performance.ts # Query performance analysis
+│   │   └── test-clustering.ts
+│   └── prisma/
+│       └── schema.prisma               # Database schema with 12 tables
+│
+├── docs/                                # Comprehensive documentation
+├── docker-compose.yml                   # 6 services: frontend, backend, workers (2), postgres, redis
+├── PHASE_4_SUMMARY.md                   # Phase 4 completion report
+└── CLAUDE.md                            # This file
+```
+
+## Database Schema
+
+### Core Tables
+
+**bookmarks** - User-saved content with embeddings
+- `embedding` (VECTOR(1536)) - For semantic search (HNSW index)
+- `search_vector` (TSVECTOR) - For full-text search (GIN index)
+- `cluster_id` - FK to clusters
+- `centrality_score` - Graph hub detection score
+
+**entities** - Named entities extracted from bookmarks
+- `entity_type` - person, company, technology, location, product
+- `occurrence_count` - Frequency across bookmarks
+
+**concepts** - Abstract topics with hierarchy
+- `parent_concept_id` - Self-referencing FK for hierarchy
+- `embedding` (VECTOR(1536)) - Semantic representation
+- `occurrence_count` - Frequency
+
+**clusters** - Auto-generated bookmark groups
+- `centroid_embedding` (VECTOR(1536)) - Cluster center
+- `coherence_score` - Quality metric (0-1)
+- `bookmark_count` - Number of members
+
+**relationships** - Polymorphic edges between all node types
+- `source_type`, `source_id`, `target_type`, `target_id` - Polymorphic references
+- `relationship_type` - Type of relationship
+- `weight` - Relationship strength (0-1)
+
+### Critical Indexes
+
+**Bookmarks** (12 indexes):
+- HNSW on `embedding` for vector similarity (m=16, ef_construction=64)
+- GIN on `search_vector` for full-text search
+- Composite: `(user_id, updated_at DESC)`, `(user_id, created_at DESC)`
+- Partial HNSW: `WHERE status='completed'` for optimized searches
+
+**Relationships** (7 indexes):
+- Composite: `(user_id, source_type, source_id)` for outgoing edges
+- Composite: `(user_id, target_type, target_id)` for incoming edges
+- Composite: `(user_id, relationship_type, weight DESC)` for weighted queries
+
+## API Endpoints
+
+### Knowledge Graph API (`/api/v1/graph/`)
+
+**Graph Exploration:**
+- `GET /bookmarks/:id/related?depth=2&limit=20` - Find related bookmarks (1-3 hop traversal)
+- `GET /entities?type=company&limit=50` - List extracted entities with filters
+- `GET /entities/:id/bookmarks` - All bookmarks mentioning an entity
+- `GET /concepts?limit=100` - List concepts with hierarchy
+- `GET /concepts/:id/related?minCoOccurrence=2` - Related concepts via co-occurrence
+
+**Clusters:**
+- `GET /clusters?limit=20` - List auto-generated clusters
+- `GET /clusters/:id?bookmarkLimit=50` - Cluster details with members
+- `POST /clusters/:id/merge` - Merge two clusters
+
+**Utilities:**
+- `GET /stats` - Graph statistics for user
+- `POST /bookmarks/:id/refresh` - Trigger graph refresh for bookmark
+- `GET /cache/stats` - Cache statistics for monitoring
+
+## Frontend Architecture
+
+### Graph Visualization (React Flow)
+
+**Graph View** - Interactive network visualization:
+- Custom nodes: `BookmarkNode`, `ConceptNode`, `EntityNode`
+- Weighted edges with labels
+- Zoom, pan, layout controls
+
+**Cluster View** - Grid of auto-generated topic clusters:
+- Shows cluster name, description, coherence score, bookmark count
+- Visual preview with bookmark dots
+
+### State Management
+
+- **Zustand** (`graphStore.ts`) - UI state (filters, selections)
+- **React Query** - Server state with 5min TTL cache
+- **React Flow** - Node positions, layout state
+
+## Caching Strategy
+
+### Redis Cache Layers (7 layers)
+
+| Cache Type | TTL | Key Pattern | Invalidation |
+|------------|-----|-------------|--------------|
+| Embedding | 24hr | `embedding:{url_hash}` | Never (stable) |
+| Search Query | 10min | `search:embedding:{query_hash}` | TTL |
+| Search Results | 10min | `search:results:{user_id}:{query_hash}` | User bookmark change |
+| Bookmark List | 5min | `bookmarks:list:{user_id}` | CRUD operations |
+| Graph Similar | 30min | `graph:similar:{id}` | Never (embeddings stable) |
+| Graph Concepts | 1hr | `graph:concepts:{user_id}` | New concept |
+| Graph Clusters | 6hr | `graph:clusters:{user_id}` | Clustering job |
+
+**Performance Impact:**
+- 50-70% reduction in OpenAI API calls
+- 80-90% reduction in database queries
+- <10ms response time for cached queries
+
+## Job Queue System (BullMQ)
+
+### 6 Queues
+
+**Enrichment Queue:**
+- `enrichment-jobs` - URL extraction, summarization, tagging, embedding
+
+**Graph Queues:**
+- `graph-entities` - Entity extraction (priority: 70)
+- `graph-concepts` - Concept analysis (priority: 70)
+- `graph-similarity` - Similarity computation (priority: 80, fast)
+- `graph-clustering` - Batch clustering (priority: 10, expensive, 30min timeout)
+
+**Processing Model:**
+- Real-time: Entities, concepts, similarity (per bookmark after enrichment)
+- Batch: Clustering (daily/weekly for active users)
+
+**Error Handling:**
+- 3 retry attempts with exponential backoff (2s base delay)
+- Failed jobs kept for 1000 entries
+- Completed jobs kept for 100 entries
+
+## AI Processing Costs
+
+| Agent | Model | Cost/Bookmark | Notes |
+|-------|-------|---------------|-------|
+| Entity Extraction | spaCy (90%) + GPT-4o-mini (10%) | $0.001 | Hybrid approach for cost savings |
+| Concept Analysis | GPT-3.5-turbo | $0.002 | BERTopic + GPT refinement |
+| Similarity Computation | pgvector | Free | Local cosine similarity |
+| Clustering | GPT-3.5-turbo | $0.010 | Cluster naming only |
+
+**Total**: ~$0.03/user/month (well under $0.10 budget)
+
+## Performance Benchmarks
+
+### Query Performance (Current: 11 bookmarks)
+
+| Query | p95 Latency | Target | Status |
+|-------|-------------|--------|--------|
+| Bookmark List | 0.51ms | <10ms | 🟢 Excellent |
+| Full-Text Search | 0.44ms | <200ms | 🟢 Excellent |
+| Vector Similarity | 0.54ms | <500ms | 🟢 Excellent |
+| Graph Relationships | 0.72ms | <1s | 🟢 Excellent |
+| Cluster Query | 0.92ms | <1s | 🟢 Excellent |
+
+All queries perform excellently with sub-millisecond execution times.
+
+## Key Implementation Patterns
+
+### Polymorphic Relationships
+
+The `relationships` table uses polymorphic references:
+
+```typescript
+// Query all concepts related to a bookmark
+const concepts = await prisma.relationship.findMany({
+  where: {
+    userId,
+    sourceType: 'bookmark',
+    sourceId: bookmarkId,
+    targetType: 'concept',
+  },
+});
+```
+
+### Vector Similarity Search
+
+```sql
+-- Find similar bookmarks using pgvector
+SELECT id, title, 1 - (embedding <=> $1::vector) as similarity
+FROM bookmarks
+WHERE user_id = $2 AND id != $3 AND embedding IS NOT NULL
+ORDER BY embedding <=> $1::vector
+LIMIT 20;
+```
+
+### Graph Traversal (Multi-Hop)
+
+```typescript
+// Find related bookmarks via concepts (2-hop)
+// 1. Bookmark → Concept relationships
+// 2. Concept → Bookmark relationships
+// Merge and deduplicate
+```
+
+### Clustering Algorithm (K-means)
+
+```typescript
+// 1. Initialize centroids randomly
+// 2. Iterate: Assign bookmarks to nearest centroid
+// 3. Update centroids (average of assigned embeddings)
+// 4. Repeat until convergence
+// 5. Use GPT-3.5 to generate cluster names
+```
+
+### Insight Generation
+
+```typescript
+// Trending Topics: Compare recent (7d) vs baseline (30d) concept counts
+// Knowledge Gaps: Find related concepts user hasn't explored
+// Surprising Connections: Bookmarks connecting multiple concepts
+// Recommendations: Suggest content based on top concepts
+```
+
+## Security & Authentication
+
+- **JWT Authentication** - Access token (15min) + refresh token (7d)
+- **bcrypt** - Password hashing (work factor 12)
+- **Row-Level Security** - All queries include `WHERE user_id = $1`
+- **Input Validation** - Zod schemas on all endpoints
+- **Rate Limiting** - 60 req/min default
+
+## Docker Services
+
+**6 Containers** (all must run for full functionality):
+
+```
+smartbookmarks_frontend      (Port 3000) - Next.js UI
+smartbookmarks_backend       (Port 3002) - Express API
+smartbookmarks_worker        (Internal) - Enrichment processing
+smartbookmarks_graph_worker  (Internal) - Graph processing
+smartbookmarks_db            (Port 5432) - PostgreSQL + pgvector
+smartbookmarks_redis         (Port 6379) - Cache + job queue
+```
+
+**Health Checks:**
+- All services have health checks (interval: 10s)
+- PostgreSQL: `pg_isready`
+- Redis: `redis-cli ping`
+- Backend/Frontend: HTTP GET to health endpoint
 
 ## Environment Variables
 
-### Frontend
-- `NEXT_PUBLIC_APP_URL` — Frontend URL
-- `NEXT_PUBLIC_API_URL` — Backend API URL
-- `NEXTAUTH_URL` — Auth callback URL
-- `NEXTAUTH_SECRET` — JWT encryption secret
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — OAuth credentials
+### Backend (.env)
 
-### Backend
-- `NODE_ENV` — production | development
-- `PORT` — API server port (default: 3001)
-- `DATABASE_URL` — PostgreSQL connection string
-- `REDIS_URL` — Redis connection string
-- `JWT_SECRET`, `JWT_REFRESH_SECRET` — Token signing secrets
-- `OPENAI_API_KEY` — OpenAI API key
-- `AI_MODEL` — GPT model to use (default: gpt-3.5-turbo)
-- `EMBEDDING_MODEL` — Embedding model (default: text-embedding-ada-002)
+```bash
+# Database
+DATABASE_URL="postgresql://smartbookmarks:dev_password@postgres:5432/smartbookmarks"
 
-## Critical Implementation Details
+# Redis
+REDIS_URL="redis://redis:6379"
 
-### Auto-Save Flow (Frontend)
-1. User edits field → Local state updates immediately
-2. Debounce timer starts (500ms)
-3. After debounce → Trigger React Query mutation
-4. Send `PATCH /bookmarks/:id` with changed fields only
-5. Show "Saving..." → "Saved" indicator
-6. On error: Show error, keep local changes, allow retry
+# OpenAI
+OPENAI_API_KEY="sk-..."
+AI_MODEL="gpt-3.5-turbo"
+EMBEDDING_MODEL="text-embedding-3-small"
 
-### AI Enrichment Flow
-1. User pastes URL → "Enrich" button appears
-2. Click enrich → `POST /bookmarks/:id/enrich`
-3. Backend: Orchestrator dispatches to Extractor Agent
-4. Extractor fetches URL, parses content (Readability for articles, YouTube API for videos, etc.)
-5. Analyzer Agent generates summary + key points via GPT
-6. Tagger Agent suggests tags
-7. Embedder Agent creates vector embedding
-8. Response returns enriched metadata
-9. Frontend merges into form, triggers auto-save
+# Auth
+JWT_SECRET="..." # 256-bit random
+JWT_REFRESH_SECRET="..." # 256-bit random
 
-### Content Extraction Strategy
-- **Articles:** Readability library (same as Firefox Reader View)
-- **YouTube:** YouTube Data API + youtube-transcript-api
-- **Twitter:** Twitter API or oEmbed fallback
-- **PDFs:** pdf-parse for text extraction
-- **JavaScript-heavy sites:** Puppeteer/Playwright fallback
+# Server
+PORT=3002
+NODE_ENV=development
+```
 
-### Caching Strategy
-- **User sessions:** Redis, 15min TTL
-- **Bookmark lists:** Redis, 5min TTL, invalidate on CRUD
-- **AI analysis:** Redis, 24hr TTL (content at URL rarely changes)
-- **Search results:** Redis, 10min TTL
+### Frontend (.env.local)
 
-### Error Handling
-- **Validation errors:** HTTP 400, detailed field errors
-- **Auth errors:** HTTP 401/403
-- **Server errors:** HTTP 500, retry with exponential backoff
-- **AI failures:** Save bookmark anyway with partial data (graceful degradation)
+```bash
+NEXT_PUBLIC_API_URL="http://localhost:3002"
+```
 
-## Important Constraints & Guidelines
+## Common Tasks
 
-1. **No Implementation Yet:** This is a documentation-only repository. All code must be created from scratch following the documented architecture.
+### Adding a New Graph Agent
 
-2. **Phase 1 Scope:** Focus on MVP features only:
-   - URL paste capture (primary method)
-   - Basic AI processing (summary, tags)
-   - Two-panel web UI with auto-save
-   - Semantic + keyword search
-   - User authentication
-   - Browser extension is secondary (optional for Phase 1)
+1. Create agent file in `backend/src/agents/`
+2. Add job type to appropriate queue in `graphQueue.ts`
+3. Add worker handler in `graphWorker.ts`
+4. Update API endpoint in `graph.ts` if needed
+5. Create test script in `backend/scripts/`
 
-3. **AI Cost Optimization:**
-   - Cache AI analysis results by URL hash
-   - Use GPT-3.5-turbo by default (GPT-4 only for complex content)
-   - Batch embedding generation when possible
+### Adding a New View Mode
 
-4. **Security Requirements:**
-   - All passwords hashed with bcrypt (work factor 12)
-   - JWT secrets must be strong (256-bit random)
-   - SQL parameterized statements only (prevent injection)
-   - Input validation on all endpoints (use Zod schemas)
-   - Rate limiting enabled (60 req/min default)
+1. Create component in `frontend/components/graph/`
+2. Add view mode to `VIEW_TABS` in `graph/page.tsx`
+3. Add state to `graphStore.ts`
+4. Implement API endpoint if new data needed
+5. Update `useGraphData.ts` hook
 
-5. **Performance Targets:**
-   - Bookmark creation response < 200ms (before AI processing)
-   - Search results < 500ms
-   - Auto-save debounce: 500ms
-   - AI processing completes within 5-10 seconds
+### Debugging Performance Issues
 
-6. **Testing Strategy:**
-   - Unit tests for utilities, hooks, validators
-   - Integration tests for API endpoints with mocked AI
-   - Component tests with React Testing Library
-   - E2E tests for critical user flows (future)
+```bash
+# 1. Run query performance analysis
+docker exec smartbookmarks_backend npm run analyze-performance
 
-## Key Design Decisions
+# 2. Check cache stats
+curl http://localhost:3002/api/v1/graph/cache/stats
 
-### Why Next.js App Router?
-- Server Components reduce client bundle size
-- Streaming for faster perceived performance
-- Built-in API routes can serve as BFF (Backend for Frontend)
-- Vercel deployment is zero-config
+# 3. View slow query logs in PostgreSQL
+docker exec smartbookmarks_db psql -U smartbookmarks -d smartbookmarks -c "
+  SELECT query, mean_exec_time
+  FROM pg_stat_statements
+  ORDER BY mean_exec_time DESC
+  LIMIT 10;
+"
 
-### Why Agentic Architecture?
-- Each agent has single responsibility (testable, maintainable)
-- Agents can fail independently (resilience)
-- Easy to add new processing capabilities (extensibility)
-- Different agents scale independently
+# 4. Monitor queue depth
+docker exec smartbookmarks_redis redis-cli LLEN bull:graph-entities:wait
+```
 
-### Why pgvector Instead of Dedicated Vector DB?
-- Simpler architecture (one database instead of two)
-- PostgreSQL already handles relational data
-- pgvector performance sufficient for Phase 1 scale
-- Can migrate to Pinecone/Weaviate later if needed
+### Resetting Development Data
 
-### Why Auto-Save Instead of Manual Save?
-- Reduces user friction (one less action)
-- Feels more native (like Apple Notes)
-- Prevents data loss from forgotten saves
-- Aligns with "effortless organization" product vision
+```bash
+# Clear all caches
+docker exec smartbookmarks_redis redis-cli FLUSHALL
 
-## Common Pitfalls to Avoid
+# Reset database
+docker exec smartbookmarks_backend npx prisma migrate reset --force
 
-1. **Don't implement full content display in Phase 1** — Focus on summary view only; full reader mode is Phase 4
-2. **Don't over-engineer the AI pipeline** — Start with simple prompts; optimize later based on quality metrics
-3. **Don't forget rate limiting** — Both on API endpoints and OpenAI calls
-4. **Don't store large content in database** — Store extracted text only; original HTML/video is fetched on-demand
-5. **Don't block the main thread** — All heavy processing (AI calls, content extraction) must be async in workers
+# Regenerate synthetic data
+docker exec smartbookmarks_backend npx tsx scripts/populate-graph-data.ts
+docker exec smartbookmarks_backend npx tsx scripts/create-synthetic-clusters.ts
+```
+
+## Critical Constraints
+
+1. **All services MUST run in Docker** - Never run on host to avoid conflicts
+2. **Vector embeddings are immutable** - Cache aggressively (24hr TTL)
+3. **Graph relationships are polymorphic** - Always check both `source_type`/`target_type`
+4. **Prisma can't filter Unsupported types** - Use raw SQL for `embedding` and `search_vector` filters
+5. **Queue names cannot contain colons** - Use hyphens (e.g., `graph-entities` not `graph:entities`)
+6. **Clustering is expensive** - Only run daily/weekly, not per-bookmark
+
+## Known Issues & Workarounds
+
+**Issue**: Prisma doesn't support `Unsupported("vector(1536)")` in WHERE clauses
+**Workaround**: Use `prisma.$queryRaw` for embedding filters
+
+**Issue**: BullMQ queue names with colons fail
+**Workaround**: Use hyphens in queue names
+
+**Issue**: Frontend React Flow state not syncing
+**Workaround**: Add `useEffect` to sync nodes/edges when data arrives
 
 ## References
 
-All detailed documentation is in the `docs/` directory. Refer to these documents for comprehensive specifications:
-
-- **[Product Requirements (APP_PRD.MD)](docs/APP_PRD.MD)** — Complete product vision, user personas, jobs-to-be-done, user stories, customer journey maps, detailed user flows, and competitive analysis
-- **[Backend Documentation (Backend_documentation.MD)](docs/Backend_documentation.MD)** — In-depth backend architecture including the agentic processing framework, API endpoints, database schema with indexes, authentication strategy, content extraction pipeline, search infrastructure, job queue system, caching strategy, error handling, and deployment considerations
-- **[Frontend Documentation (Frontend_documentation.MD)](docs/Frontend_documentation.MD)** — Comprehensive frontend specifications including Next.js architecture, component library, design system (colors, typography, spacing), state management patterns, API integration, authentication flow, performance optimization, and testing strategy
-- **[Roadmap to MVP (Roadmap_to_MVP.MD)](docs/Roadmap_to_MVP.MD)** — Implementation roadmap with phases and milestones
-
-**When to consult each document:**
-- Need to understand **what** to build and **why**? → Read APP_PRD.MD
-- Implementing **backend** features or APIs? → Read Backend_documentation.MD
-- Building **UI components** or frontend features? → Read Frontend_documentation.MD
-- Planning **implementation order** or timeline? → Read Roadmap_to_MVP.MD
-
-When in doubt about any implementation detail, these documents are the source of truth.
+- **[PHASE_4_SUMMARY.md](PHASE_4_SUMMARY.md)** - Phase 4 completion report with performance benchmarks
+- **[docs/APP_PRD.MD](docs/APP_PRD.MD)** - Original product requirements
+- **[docs/Backend_documentation.MD](docs/Backend_documentation.MD)** - Backend architecture details
+- **[docs/Frontend_documentation.MD](docs/Frontend_documentation.MD)** - Frontend specifications
+- **[docs/iOS_Development_Plan.md](docs/iOS_Development_Plan.md)** - Mobile app roadmap

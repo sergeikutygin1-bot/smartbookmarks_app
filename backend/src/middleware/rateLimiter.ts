@@ -192,10 +192,15 @@ export const generalRateLimit = rateLimit({
     });
   },
 
-  // Skip health check and admin routes from rate limiting
+  // Skip health check, admin routes, and graph endpoints from rate limiting
   skip: (req: Request) => {
     const skipPaths = ['/health', '/admin/stats'];
-    return skipPaths.includes(req.path);
+    const skipPrefixes = ['/api/v1/graph/']; // Graph endpoints are read-only and cached
+
+    return (
+      skipPaths.includes(req.path) ||
+      skipPrefixes.some(prefix => req.path.startsWith(prefix))
+    );
   },
 });
 

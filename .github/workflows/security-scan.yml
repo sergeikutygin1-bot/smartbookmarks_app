@@ -1,0 +1,72 @@
+name: Security Scan
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  scan-dependencies:
+    name: Scan Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner (backend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './backend'
+          format: 'sarif'
+          output: 'trivy-backend-deps.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload backend scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-backend-deps.sarif'
+          category: 'backend-dependencies'
+
+      - name: Run Trivy vulnerability scanner (frontend)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './frontend'
+          format: 'sarif'
+          output: 'trivy-frontend-deps.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload frontend scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-frontend-deps.sarif'
+          category: 'frontend-dependencies'
+
+  scan-docker-images:
+    name: Scan Docker Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Pull latest images
+        run: |
+          docker pull smartbookmarks/backend:latest || true
+          docker pull smartbookmarks/frontend:latest || true
+
+      - name: Scan backend image
+        if: success()
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'smartbookmarks/backend:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Scan frontend image
+        if: success()
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'smartbookmarks/frontend:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: smart-bookmarks
+
+resources:
+  - namespace.yaml
+  - secrets.yaml
+  - configmap.yaml
+  - backend-deployment.yaml
+  - frontend-deployment.yaml
+  - enrichment-worker-deployment.yaml
+  - graph-worker-deployment.yaml
+  - autoscaling.yaml
+  - ingress.yaml
+  - network-policy.yaml
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: smart-bookmarks
+  app.kubernetes.io/managed-by: kustomize
+
+# Common annotations
+commonAnnotations:
+  app.kubernetes.io/version: "1.0.0"
