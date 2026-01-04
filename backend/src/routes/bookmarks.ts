@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { bookmarkRepository, invalidateBookmarkCaches } from '../repositories/bookmarkRepository';
 import { invalidateSearchCaches } from './search';
 import { authMiddleware } from '../middleware/auth';
+import { graphCache } from '../services/graphCache';
 
 const router = express.Router();
 
@@ -94,6 +95,7 @@ router.post('/', async (req: Request, res: Response) => {
     // Invalidate caches
     await invalidateBookmarkCaches(userId);
     await invalidateSearchCaches(userId);
+    await graphCache.invalidateProjectionCache(userId);
 
     res.status(201).json({ data: bookmark });
   } catch (error) {
@@ -132,6 +134,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
     // Invalidate caches
     await invalidateBookmarkCaches(userId);
     await invalidateSearchCaches(userId);
+    await graphCache.invalidateProjectionCache(userId);
 
     res.json({ data: bookmark });
   } catch (error) {
@@ -164,6 +167,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     // Invalidate caches
     await invalidateBookmarkCaches(userId);
     await invalidateSearchCaches(userId);
+    await graphCache.invalidateProjectionCache(userId);
 
     res.status(204).send();
   } catch (error) {

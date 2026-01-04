@@ -182,6 +182,16 @@ export class GraphCacheService {
   }
 
   /**
+   * Invalidate projection cache when bookmark added/removed
+   */
+  async invalidateProjectionCache(userId: string) {
+    // Dynamic import to avoid circular dependency
+    const { projectionCache } = await import('./projectionCache');
+    await projectionCache.invalidateProjection(userId);
+    console.log(`[GraphCache] Invalidated projection cache for user ${userId}`);
+  }
+
+  /**
    * Invalidate ALL graph caches for a user
    * Call this on graph refresh or major updates
    */
@@ -191,6 +201,7 @@ export class GraphCacheService {
       this.entityCache.clear(`${userId}:*`),
       this.conceptCache.clear(`${userId}:*`),
       this.statsCache.clear(userId),
+      this.invalidateProjectionCache(userId),
     ]);
     console.log(`[GraphCache] Invalidated ALL graph caches for user ${userId}`);
   }

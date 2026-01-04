@@ -3,6 +3,7 @@ import { graphService } from '../services/graphService';
 import { graphCache } from '../services/graphCache';
 import { authMiddleware } from '../middleware/auth';
 import { PrismaClient } from '@prisma/client';
+import projectionRouter from './projection';
 
 const prisma = new PrismaClient();
 
@@ -10,6 +11,9 @@ const router = express.Router();
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
+
+// Mount projection routes
+router.use('/positions', projectionRouter);
 
 /**
  * GET /api/v1/graph/bookmarks/:id/related

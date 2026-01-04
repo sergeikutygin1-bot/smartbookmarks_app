@@ -42,6 +42,9 @@ model Bookmark {
   embedding        Unsupported("vector(1536)")?
   searchVector     Unsupported("tsvector")?     @map("search_vector")
   centralityScore  Float     @default(0.0) @map("centrality_score")
+  graphX           Float?    @map("graph_x")
+  graphY           Float?    @map("graph_y")
+  graphPositionedAt DateTime? @map("graph_positioned_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
   processedAt      DateTime? @map("processed_at")
