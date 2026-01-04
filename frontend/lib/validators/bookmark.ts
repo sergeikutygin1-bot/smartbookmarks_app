@@ -31,13 +31,7 @@ export const bookmarkFormSchema = z.object({
   summary: z
     .string()
     .max(5000, 'Summary must be less than 5000 characters')
-    .optional()
     .default(''),
-
-  tags: z
-    .array(z.string().min(1).max(50))
-    .max(20, 'Maximum 20 tags allowed')
-    .default([]),
 })
 
 /**

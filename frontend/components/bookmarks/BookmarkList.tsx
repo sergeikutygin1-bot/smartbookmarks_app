@@ -8,6 +8,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 import { groupBookmarksByDate } from "@/lib/date-grouping";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useQueries } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 export function BookmarkList() {
   const { selectedBookmarkId, selectBookmark } = useBookmarksStore();
@@ -16,6 +18,8 @@ export function BookmarkList() {
     selectedTypes,
     selectedSources,
     dateRange,
+    selectedConcepts,
+    selectedEntities,
     hasActiveFilters,
   } = useFilterStore();
 
@@ -48,6 +52,71 @@ export function BookmarkList() {
     ? hybridSearchResult
     : regularResult;
 
+  // Fetch metadata for all bookmarks when concept/entity filters are active
+  // IMPORTANT: Do NOT use useQueries with the 'bookmark-metadata-v3' key directly
+  // because it will overwrite the cache with a different data structure (bookmarkId/conceptIds/entityIds)
+  // instead of the standard {concepts, entities} structure used by BookmarkListItem and BookmarkNote
+  // This causes cache pollution where components see the wrong data structure
+  const hasConceptOrEntityFilters = selectedConcepts.length > 0 || selectedEntities.length > 0;
+
+  const metadataQueries = useQueries({
+    queries: (bookmarks || []).map((bookmark) => ({
+      // Use a separate cache key to avoid overwriting the standard bookmark-metadata-v3
+      // This prevents the filtering query from polluting the display queries
+      queryKey: ['bookmark-metadata-for-filtering', bookmark.id],
+      queryFn: async () => {
+        const response = await fetch(
+          `/api/graph/bookmarks/${bookmark.id}/related`
+        );
+        if (!response.ok) return { concepts: [], entities: [] };
+        const result = await response.json();
+        return {
+          bookmarkId: bookmark.id,
+          conceptIds: result.data.concepts?.map((c: any) => c.concept.id) || [],
+          entityIds: result.data.entities?.map((e: any) => e.entity.id) || [],
+        };
+      },
+      enabled: hasConceptOrEntityFilters && !!bookmarks,
+      staleTime: 1000 * 60 * 5,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+    })),
+  });
+
+  // Filter bookmarks by concepts/entities
+  const filteredBookmarks = useMemo(() => {
+    if (!bookmarks) return [];
+    if (!hasConceptOrEntityFilters) return bookmarks;
+
+    // Wait for metadata to load
+    const allLoaded = metadataQueries.every(q => q.isSuccess);
+    if (!allLoaded) return bookmarks; // Show all while loading
+
+    return bookmarks.filter((bookmark) => {
+      const metadata = metadataQueries.find(q => q.data?.bookmarkId === bookmark.id)?.data;
+      if (!metadata) return false;
+
+      // Filter by concepts
+      if (selectedConcepts.length > 0) {
+        const hasSelectedConcept = selectedConcepts.some(
+          conceptId => metadata.conceptIds.includes(conceptId)
+        );
+        if (!hasSelectedConcept) return false;
+      }
+
+      // Filter by entities
+      if (selectedEntities.length > 0) {
+        const hasSelectedEntity = selectedEntities.some(
+          entityId => metadata.entityIds.includes(entityId)
+        );
+        if (!hasSelectedEntity) return false;
+      }
+
+      return true;
+    });
+  }, [bookmarks, selectedConcepts, selectedEntities, metadataQueries, hasConceptOrEntityFilters]);
+
   if (isLoading) {
     return <BookmarkListSkeleton />;
   }
@@ -60,7 +129,7 @@ export function BookmarkList() {
     );
   }
 
-  if (!bookmarks || bookmarks.length === 0) {
+  if (!filteredBookmarks || filteredBookmarks.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center p-8">
         <p className="text-muted-foreground text-sm text-center">
@@ -86,7 +155,7 @@ export function BookmarkList() {
 
   if (displayMode === 'search') {
     // Search results - flat list sorted by relevance (most relevant first)
-    const filteredBookmarks = bookmarks.filter((bookmark) => bookmark.id);
+    const searchResults = filteredBookmarks.filter((bookmark) => bookmark.id);
 
     return (
       <ScrollArea className="h-full w-full">
@@ -101,12 +170,12 @@ export function BookmarkList() {
             >
               {/* Search Results Header */}
               <h2 className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider sticky top-0 bg-sidebar z-10">
-                Search Results ({filteredBookmarks.length})
+                Search Results ({searchResults.length})
               </h2>
 
               {/* Flat list of search results */}
               <div className="space-y-0.5">
-                {filteredBookmarks.map((bookmark, index) => (
+                {searchResults.map((bookmark, index) => (
                   <motion.div
                     key={bookmark.id}
                     layout
@@ -148,7 +217,7 @@ export function BookmarkList() {
 
   // Grouped view - Group bookmarks by date (Apple Notes style)
   const groupedBookmarks = groupBookmarksByDate(
-    bookmarks.filter((bookmark) => bookmark.id)
+    filteredBookmarks.filter((bookmark) => bookmark.id)
   );
 
   return (

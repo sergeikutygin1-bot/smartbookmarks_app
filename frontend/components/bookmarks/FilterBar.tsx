@@ -7,6 +7,8 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { TypeDropdown } from "./TypeDropdown";
 import { SourceDropdown } from "./SourceDropdown";
 import { DateRangeDropdown } from "./DateRangeDropdown";
+import { ConceptDropdown } from "./ConceptDropdown";
+import { EntityDropdown } from "./EntityDropdown";
 
 export function FilterBar() {
   const { clearFilters, hasActiveFilters } = useFilterStore();
@@ -34,10 +36,12 @@ export function FilterBar() {
       {/* Collapsible filter section */}
       {showFilters && (
         <div className="px-4 pb-3 space-y-2">
-          {/* Three dropdown filters - full width stacked */}
+          {/* Five dropdown filters - full width stacked */}
           <TypeDropdown fullWidth />
           <SourceDropdown fullWidth />
           <DateRangeDropdown fullWidth />
+          <ConceptDropdown fullWidth />
+          <EntityDropdown fullWidth />
 
           {/* Clear button when filters are active */}
           {hasActiveFilters() && (

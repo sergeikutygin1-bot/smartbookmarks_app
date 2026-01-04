@@ -36,6 +36,7 @@ async function pollMetadataUntilReady(
   delayMs: number = 1000
 ): Promise<BookmarkMetadata> {
   let lastError: Error | null = null;
+  const minPollsBeforePartial = 15; // Wait at least 15 seconds for complete data
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
@@ -63,18 +64,40 @@ async function pollMetadataUntilReady(
         })) || [],
       };
 
-      // If we got any metadata, return it immediately
-      // This means graph workers have processed the bookmark
-      if (metadata.concepts.length > 0 || metadata.entities.length > 0) {
-        console.log(
-          `[useBookmarkMetadata] Got metadata for ${bookmarkId} after ${attempt + 1} poll(s):`,
-          metadata
-        );
-        return metadata;
+      const hasConcepts = metadata.concepts.length > 0;
+      const hasEntities = metadata.entities.length > 0;
+      const hasAnyMetadata = hasConcepts || hasEntities;
+      const hasBothTypes = hasConcepts && hasEntities;
+
+      // Early attempts: Only accept if we have BOTH concepts and entities
+      // This prevents caching partial results from race conditions
+      if (attempt < minPollsBeforePartial) {
+        if (hasBothTypes) {
+          console.log(
+            `[useBookmarkMetadata] Got complete metadata for ${bookmarkId} after ${attempt + 1} poll(s):`,
+            `${metadata.concepts.length} concepts, ${metadata.entities.length} entities`
+          );
+          return metadata;
+        } else if (hasAnyMetadata && attempt === 0) {
+          console.log(
+            `[useBookmarkMetadata] Got partial metadata for ${bookmarkId}, waiting for complete data...`,
+            `(concepts: ${metadata.concepts.length}, entities: ${metadata.entities.length})`
+          );
+        }
+      } else {
+        // After minimum wait time: Accept partial results
+        // Some bookmarks may legitimately only have concepts or entities
+        if (hasAnyMetadata) {
+          console.log(
+            `[useBookmarkMetadata] Got metadata for ${bookmarkId} after ${attempt + 1} poll(s):`,
+            `${metadata.concepts.length} concepts, ${metadata.entities.length} entities`
+          );
+          return metadata;
+        }
       }
 
       // Empty result on first attempt - likely graph jobs haven't processed yet
-      if (attempt === 0) {
+      if (attempt === 0 && !hasAnyMetadata) {
         console.log(
           `[useBookmarkMetadata] Initial fetch returned empty metadata for ${bookmarkId}, polling...`
         );
@@ -119,7 +142,7 @@ export function useBookmarkMetadata(
   const pollingAttemptRef = useRef<number>(0);
 
   const query = useQuery({
-    queryKey: ['bookmark-metadata-v2', bookmarkId],
+    queryKey: ['bookmark-metadata-v3', bookmarkId],
     queryFn: async (): Promise<BookmarkMetadata> => {
       // Don't fetch for null or temporary IDs (temp-*)
       if (!bookmarkId || bookmarkId.startsWith('temp-')) {
@@ -161,6 +184,9 @@ export function useBookmarkMetadata(
     },
     enabled: !!bookmarkId,
     staleTime: 1000 * 60 * 5, // 5 minutes - concepts/entities don't change frequently
+    refetchOnWindowFocus: false, // Don't refetch when switching tabs - metadata is stable after enrichment
+    refetchOnMount: false, // Don't refetch when component mounts - use cached data
+    refetchOnReconnect: false, // Don't refetch on network reconnect - metadata doesn't change
   });
 
   return query;
@@ -176,23 +202,35 @@ export function useBookmarkMetadata(
 export function useRefreshBookmarkMetadata() {
   const queryClient = useQueryClient();
 
-  return (bookmarkId: string) => {
+  return async (bookmarkId: string) => {
     console.log(`[useRefreshBookmarkMetadata] Refreshing metadata for ${bookmarkId}`);
 
-    // Invalidate the query to trigger a refetch
-    // The refetch will use polling logic to wait for graph workers
-    queryClient.invalidateQueries({
-      queryKey: ['bookmark-metadata-v2', bookmarkId],
-    });
+    // Poll until metadata is available
+    const metadata = await pollMetadataUntilReady(bookmarkId);
 
-    // Also manually trigger a refetch with polling
-    // This ensures we don't get stuck with empty cached data
-    queryClient.fetchQuery({
-      queryKey: ['bookmark-metadata-v2', bookmarkId],
-      queryFn: async (): Promise<BookmarkMetadata> => {
-        console.log(`[useRefreshBookmarkMetadata] Polling for ${bookmarkId}`);
-        return pollMetadataUntilReady(bookmarkId);
-      },
-    });
+    // CRITICAL: Set the polled data in the cache
+    // This ensures all components using this query get the fresh data
+    // React Query will notify all subscribers of this cache key
+    const cacheKey = ['bookmark-metadata-v3', bookmarkId];
+    console.log(
+      `[useRefreshBookmarkMetadata] Setting cache for ${bookmarkId} with:`,
+      `${metadata.concepts.length} concepts, ${metadata.entities.length} entities`
+    );
+
+    queryClient.setQueryData(cacheKey, metadata);
+
+    // Verify the cache was actually set
+    const cachedData = queryClient.getQueryData(cacheKey);
+    console.log(
+      `[useRefreshBookmarkMetadata] Cache verification for ${bookmarkId}:`,
+      cachedData ? 'SUCCESS' : 'FAILED',
+      'Cached:', cachedData
+    );
+
+    if (!cachedData) {
+      console.error(`[useRefreshBookmarkMetadata] CRITICAL: Cache update failed for ${bookmarkId}`);
+    }
+
+    console.log(`[useRefreshBookmarkMetadata] Metadata refresh complete for ${bookmarkId}`);
   };
 }

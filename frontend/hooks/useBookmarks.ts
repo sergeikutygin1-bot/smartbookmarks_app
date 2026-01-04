@@ -291,7 +291,7 @@ export function useEnrichBookmark() {
         queryClient.setQueryData(bookmarksKeys.detail(id), context.previousBookmark);
       }
     },
-    onSuccess: (data, id) => {
+    onSuccess: async (data, id) => {
       console.log(`[useEnrichBookmark] onSuccess called for: ${id}`);
 
       // Check if bookmark still exists in cache (might have been deleted during enrichment)
@@ -328,8 +328,15 @@ export function useEnrichBookmark() {
       // CRITICAL FIX: Refresh metadata with polling to wait for graph worker completion
       // The graph workers (entity extraction, concept analysis) run asynchronously after enrichment
       // This polling ensures we don't cache empty metadata before it's generated
+      // IMPORTANT: Must AWAIT this to ensure metadata cache is updated before component renders
       console.log(`[useEnrichBookmark] Starting metadata refresh with polling for: ${id}`);
-      refreshMetadata(id);
+      try {
+        await refreshMetadata(id);
+        console.log(`[useEnrichBookmark] Metadata refresh completed successfully for: ${id}`);
+      } catch (error) {
+        console.error(`[useEnrichBookmark] Metadata refresh failed for: ${id}`, error);
+        // Continue anyway - metadata will be fetched on-demand by components
+      }
 
       // Update the specific bookmark in the list cache without full invalidation
       // This prevents race conditions where list gets refetched before graph workers finish
@@ -346,7 +353,7 @@ export function useEnrichBookmark() {
         queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
       }
 
-      console.log(`[useEnrichBookmark] Cache updated and metadata refresh initiated for: ${id}`);
+      console.log(`[useEnrichBookmark] Cache updated and metadata refresh completed for: ${id}`);
     },
   });
 }

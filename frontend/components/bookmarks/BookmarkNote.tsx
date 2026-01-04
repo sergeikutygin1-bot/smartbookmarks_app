@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Bookmark } from "@/store/bookmarksStore";
@@ -13,9 +13,13 @@ import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExternalLink, Tag, Sparkles, X, Loader2 } from "lucide-react";
+import { ExternalLink, Sparkles, Lightbulb, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import { useBookmarkMetadata } from "@/hooks/useBookmarkMetadata";
+import { ConceptBadge } from "./ConceptBadge";
+import { EntityBadge } from "./EntityBadge";
+import { useFilterStore } from "@/store/filterStore";
 
 interface BookmarkNoteProps {
   bookmark: Bookmark;
@@ -29,10 +33,10 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   const enrichmentStatus = useEnrichmentStore(state => state.getEnrichmentStatus(bookmark.id));
   const isEnriching = useEnrichmentStore(state => state.isEnriching(bookmark.id));
 
-  // Tag input state (not part of form, just UI state)
-  const [isAddingTag, setIsAddingTag] = useState(false);
-  const [newTagValue, setNewTagValue] = useState("");
-  const tagInputRef = useRef<HTMLInputElement>(null);
+  // Fetch concepts and entities for this bookmark
+  const { data: metadata } = useBookmarkMetadata(bookmark.id);
+
+  const { selectedConcepts, selectedEntities, setConcepts, setEntities } = useFilterStore();
 
   // Initialize form with React Hook Form + Zod validation
   const {
@@ -41,13 +45,12 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     setValue,
     formState: { errors, isDirty },
     reset,
-  } = useForm<BookmarkFormData>({
+  } = useForm({
     resolver: zodResolver(bookmarkFormSchema),
     defaultValues: {
       title: bookmark.title,
       url: bookmark.url,
       summary: bookmark.summary || '',
-      tags: bookmark.tags,
     },
   });
 
@@ -72,8 +75,8 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   );
 
   // Sync form when bookmark changes or enrichment completes
-  const prevIdRef = useRef<string>();
-  const prevEnrichmentStatusRef = useRef<string>();
+  const prevIdRef = useRef<string | undefined>(undefined);
+  const prevEnrichmentStatusRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const idChanged = prevIdRef.current !== bookmark.id;
@@ -106,46 +109,22 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
         title: bookmark.title,
         url: bookmark.url,
         summary: bookmark.summary || '',
-        tags: bookmark.tags,
       });
-
-      setIsAddingTag(false);
-      setNewTagValue("");
     }
 
     prevIdRef.current = bookmark.id;
     prevEnrichmentStatusRef.current = enrichmentStatus;
-  }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, bookmark.tags, enrichmentStatus, reset]);
+  }, [bookmark.id, bookmark.title, bookmark.url, bookmark.summary, enrichmentStatus, reset]);
 
-  // Focus tag input when adding tag
-  useEffect(() => {
-    if (isAddingTag && tagInputRef.current) {
-      tagInputRef.current.focus();
-    }
-  }, [isAddingTag]);
-
-  // Tag management functions
-  const handleAddTag = () => {
-    const trimmedTag = newTagValue.trim();
-    if (trimmedTag && !formData.tags.includes(trimmedTag)) {
-      setValue('tags', [...formData.tags, trimmedTag], { shouldDirty: true });
-      setNewTagValue("");
-      setIsAddingTag(false);
-    }
+  // Click handlers for filtering
+  const handleConceptClick = (concept: { id: string; name: string }) => {
+    setConcepts([concept.id]);
+    toast.success(`Filtering by concept: ${concept.name}`);
   };
 
-  const handleRemoveTag = (tagToRemove: string) => {
-    setValue('tags', formData.tags.filter((tag) => tag !== tagToRemove), { shouldDirty: true });
-  };
-
-  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleAddTag();
-    } else if (e.key === "Escape") {
-      setNewTagValue("");
-      setIsAddingTag(false);
-    }
+  const handleEntityClick = (entity: { id: string; name: string }) => {
+    setEntities([entity.id]);
+    toast.success(`Filtering by entity: ${entity.name}`);
   };
 
   // Handle enrich with AI
@@ -175,11 +154,10 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
           title: enrichedBookmark.title,
           url: enrichedBookmark.url,
           summary: enrichedBookmark.summary || '',
-          tags: enrichedBookmark.tags,
         });
 
         toast.success("AI enrichment completed!", {
-          description: "Summary, tags, and metadata have been updated.",
+          description: "Summary, concepts, and entities have been updated.",
           classNames: {
             description: "!text-foreground/90 !font-medium",
           },
@@ -354,65 +332,67 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
           <span>{bookmark.createdAt.toLocaleDateString()}</span>
         </div>
 
-        {/* Tags */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Tag className="h-4 w-4 text-muted-foreground" />
-            <span className="text-[20px] font-display font-semibold">Tags</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <AnimatePresence mode="popLayout">
-              {formData.tags.map((tag) => (
-                <motion.div
-                  key={tag}
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <Badge className="text-sm px-3 py-1 font-medium bg-primary hover:bg-primary/90 text-primary-foreground rounded-md group">
-                    <span>{tag}</span>
-                    <X
-                      className="h-3 w-3 ml-2 opacity-70 group-hover:opacity-100 transition-opacity cursor-pointer !pointer-events-auto"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveTag(tag);
-                      }}
-                    />
-                  </Badge>
-                </motion.div>
-              ))}
-            </AnimatePresence>
+        {/* Concepts & Entities - Read-only AI-generated */}
+        <div className="space-y-6">
+          {/* Concepts */}
+          {metadata?.concepts && metadata.concepts.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Lightbulb className="h-4 w-4 text-purple-600" />
+                <span className="text-[20px] font-display font-semibold">Concepts</span>
+                <Badge variant="outline" className="text-[10px] px-2 py-0">
+                  AI-generated
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {metadata.concepts.map((concept) => (
+                  <ConceptBadge
+                    key={concept.id}
+                    concept={concept}
+                    weight={concept.weight}
+                    onClick={handleConceptClick}
+                    size="default"
+                    showWeight
+                    isActive={selectedConcepts.includes(concept.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
-            {isAddingTag ? (
-              <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                className="flex gap-2"
-              >
-                <Input
-                  ref={tagInputRef}
-                  value={newTagValue}
-                  onChange={(e) => setNewTagValue(e.target.value)}
-                  onKeyDown={handleTagKeyDown}
-                  onBlur={handleAddTag}
-                  placeholder="Enter tag name"
-                  className="h-7 text-sm px-3 w-32 focus-visible:ring-2 focus-visible:ring-primary"
-                />
-              </motion.div>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setIsAddingTag(true)}
-                className="h-7 text-sm px-3 border-2 hover:border-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200 font-semibold rounded-md"
-              >
-                + Add tag
-              </Button>
-            )}
-          </div>
-          {errors.tags && (
-            <p className="text-sm text-destructive">{errors.tags.message}</p>
+          {/* Entities */}
+          {metadata?.entities && metadata.entities.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-muted-foreground" />
+                <span className="text-[20px] font-display font-semibold">Entities</span>
+                <Badge variant="outline" className="text-[10px] px-2 py-0">
+                  AI-generated
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {metadata.entities.map((entity) => (
+                  <EntityBadge
+                    key={entity.id}
+                    entity={entity}
+                    weight={entity.weight}
+                    onClick={handleEntityClick}
+                    size="default"
+                    showWeight
+                    isActive={selectedEntities.includes(entity.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {(!metadata?.concepts || metadata.concepts.length === 0) &&
+           (!metadata?.entities || metadata.entities.length === 0) && (
+            <div className="text-sm text-muted-foreground italic flex items-center gap-2">
+              <Sparkles className="h-4 w-4" />
+              <span>No metadata yet. Click "Enrich with AI" to generate concepts and entities.</span>
+            </div>
           )}
         </div>
 

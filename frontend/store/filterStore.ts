@@ -17,6 +17,12 @@ export interface FilterState {
     to: Date | null;
   };
 
+  // Concept filter (AI-generated concepts)
+  selectedConcepts: string[];
+
+  // Entity filter (AI-generated entities)
+  selectedEntities: string[];
+
   // Actions
   setSearchQuery: (query: string) => void;
   toggleType: (type: Bookmark['contentType']) => void;
@@ -24,6 +30,10 @@ export interface FilterState {
   toggleSource: (source: string) => void;
   setSources: (sources: string[]) => void;
   setDateRange: (from: Date | null, to: Date | null) => void;
+  toggleConcept: (conceptId: string) => void;
+  setConcepts: (conceptIds: string[]) => void;
+  toggleEntity: (entityId: string) => void;
+  setEntities: (entityIds: string[]) => void;
   clearFilters: () => void;
 
   // Helper to check if any filters are active
@@ -38,6 +48,8 @@ const initialState = {
     from: null,
     to: null,
   },
+  selectedConcepts: [] as string[],
+  selectedEntities: [] as string[],
 };
 
 export const useFilterStore = create<FilterState>((set, get) => ({
@@ -66,6 +78,24 @@ export const useFilterStore = create<FilterState>((set, get) => ({
   setDateRange: (from: Date | null, to: Date | null) =>
     set({ dateRange: { from, to } }),
 
+  toggleConcept: (conceptId: string) =>
+    set((state) => ({
+      selectedConcepts: state.selectedConcepts.includes(conceptId)
+        ? state.selectedConcepts.filter(id => id !== conceptId)
+        : [...state.selectedConcepts, conceptId],
+    })),
+
+  setConcepts: (conceptIds: string[]) => set({ selectedConcepts: conceptIds }),
+
+  toggleEntity: (entityId: string) =>
+    set((state) => ({
+      selectedEntities: state.selectedEntities.includes(entityId)
+        ? state.selectedEntities.filter(id => id !== entityId)
+        : [...state.selectedEntities, entityId],
+    })),
+
+  setEntities: (entityIds: string[]) => set({ selectedEntities: entityIds }),
+
   clearFilters: () => set(initialState),
 
   hasActiveFilters: () => {
@@ -74,6 +104,8 @@ export const useFilterStore = create<FilterState>((set, get) => ({
       state.searchQuery ||
       state.selectedTypes.length > 0 ||
       state.selectedSources.length > 0 ||
+      state.selectedConcepts.length > 0 ||
+      state.selectedEntities.length > 0 ||
       state.dateRange.from ||
       state.dateRange.to
     );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Bookmark } from "@/store/bookmarksStore";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,11 @@ import { X } from "lucide-react";
 import { useDeleteBookmark, bookmarksKeys } from "@/hooks/useBookmarks";
 import { bookmarksApi } from "@/lib/api";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
-import { useVisibleTags } from "@/hooks/useVisibleTags";
+import { useBookmarkMetadata } from "@/hooks/useBookmarkMetadata";
+import { ConceptBadge } from "./ConceptBadge";
+import { EntityBadge } from "./EntityBadge";
+import { useFilterStore } from "@/store/filterStore";
+import { toast } from "sonner";
 
 interface BookmarkListItemProps {
   bookmark: Bookmark;
@@ -22,25 +26,50 @@ export function BookmarkListItem({ bookmark, isSelected, onClick }: BookmarkList
   const queryClient = useQueryClient();
   const deleteMutation = useDeleteBookmark();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const tagsContainerRef = useRef<HTMLDivElement>(null);
 
-  // Calculate how many tags can fit dynamically
-  const visibleTagCount = useVisibleTags({
-    tags: bookmark.tags,
-    containerRef: tagsContainerRef,
-  });
+  // Fetch concepts and entities for this bookmark
+  const { data: metadata, isLoading: isMetadataLoading, error: metadataError } = useBookmarkMetadata(bookmark.id);
+
+  const { selectedConcepts, selectedEntities, setConcepts, setEntities } = useFilterStore();
 
   // Check if this is an empty bookmark (no URL filled in yet)
   const isEmpty = !bookmark.url || bookmark.url === '' || bookmark.title === 'Untitled bookmark';
 
-  // Prefetch bookmark details on hover - data ready before click
+  // Prefetch bookmark details and metadata on hover - data ready before click
   const handleMouseEnter = () => {
     queryClient.prefetchQuery({
       queryKey: bookmarksKeys.detail(bookmark.id),
       queryFn: () => bookmarksApi.getById(bookmark.id),
       staleTime: 1000 * 60 * 5, // Don't refetch if recent
     });
+
+    // Prefetch metadata as well
+    queryClient.prefetchQuery({
+      queryKey: ['bookmark-metadata-v3', bookmark.id],
+      staleTime: 1000 * 60 * 5,
+    });
   };
+
+  // Click handlers for filtering
+  const handleConceptClick = (concept: { id: string; name: string }) => {
+    setConcepts([concept.id]);
+    toast.success(`Filtering by concept: ${concept.name}`);
+  };
+
+  const handleEntityClick = (entity: { id: string; name: string }) => {
+    setEntities([entity.id]);
+    toast.success(`Filtering by entity: ${entity.name}`);
+  };
+
+  // Show max 5 badges total (concepts + entities)
+  const MAX_BADGES = 5;
+  const concepts = metadata?.concepts || [];
+  const entities = metadata?.entities || [];
+  const totalBadges = concepts.length + entities.length;
+  const visibleConcepts = concepts.slice(0, Math.min(concepts.length, MAX_BADGES));
+  const remainingAfterConcepts = MAX_BADGES - visibleConcepts.length;
+  const visibleEntities = entities.slice(0, remainingAfterConcepts);
+  const hiddenCount = Math.max(0, totalBadges - MAX_BADGES);
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent selecting the bookmark when clicking delete
@@ -87,20 +116,32 @@ export function BookmarkListItem({ bookmark, isSelected, onClick }: BookmarkList
         </span>
       </div>
 
-      {/* Tags */}
-      {bookmark.tags.length > 0 && (
-        <div ref={tagsContainerRef} className="flex gap-1.5 overflow-hidden">
-          {bookmark.tags.slice(0, visibleTagCount).map((tag) => (
-            <Badge
-              key={tag}
-              className="text-[10px] px-1.5 py-0 h-5 bg-primary text-primary-foreground rounded-md flex-shrink-0"
-            >
-              {tag}
-            </Badge>
+      {/* Concepts & Entities */}
+      {(concepts.length > 0 || entities.length > 0) && (
+        <div className="flex gap-1.5 overflow-hidden flex-wrap">
+          {visibleConcepts.map((concept) => (
+            <ConceptBadge
+              key={concept.id}
+              concept={concept}
+              weight={concept.weight}
+              onClick={handleConceptClick}
+              size="compact"
+              isActive={selectedConcepts.includes(concept.id)}
+            />
           ))}
-          {bookmark.tags.length > visibleTagCount && (
-            <Badge className="text-[10px] px-1.5 py-0 h-5 bg-primary text-primary-foreground rounded-md flex-shrink-0">
-              +{bookmark.tags.length - visibleTagCount}
+          {visibleEntities.map((entity) => (
+            <EntityBadge
+              key={entity.id}
+              entity={entity}
+              weight={entity.weight}
+              onClick={handleEntityClick}
+              size="compact"
+              isActive={selectedEntities.includes(entity.id)}
+            />
+          ))}
+          {hiddenCount > 0 && (
+            <Badge className="text-[10px] px-1.5 py-0 h-5 bg-muted text-muted-foreground rounded-md flex-shrink-0">
+              +{hiddenCount} more
             </Badge>
           )}
         </div>
