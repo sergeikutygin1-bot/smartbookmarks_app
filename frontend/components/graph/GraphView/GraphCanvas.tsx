@@ -107,6 +107,41 @@ export function GraphCanvas() {
     );
   }, [selectedNodeId, setEdges]);
 
+  // Update z-index based on selection (bring selected + connected nodes to front)
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((node) => {
+        if (!selectedNodeId) {
+          // No selection: restore default z-index based on node type
+          const defaultZIndex = node.type === 'bookmark' ? 10 : 5;
+          return {
+            ...node,
+            zIndex: defaultZIndex,
+          };
+        }
+
+        // Check if node is selected or connected to selected node
+        const isSelected = node.id === selectedNodeId;
+        const isConnected = highlightedNodeIds.includes(node.id);
+
+        if (isSelected || isConnected) {
+          // Bring to front layer
+          return {
+            ...node,
+            zIndex: 100,
+          };
+        } else {
+          // Keep at default layer
+          const defaultZIndex = node.type === 'bookmark' ? 10 : 5;
+          return {
+            ...node,
+            zIndex: defaultZIndex,
+          };
+        }
+      })
+    );
+  }, [selectedNodeId, highlightedNodeIds, setNodes]);
+
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

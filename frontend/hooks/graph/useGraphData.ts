@@ -261,6 +261,7 @@ export function useGraphData() {
                   id: bookmark.id,
                   type: 'bookmark',
                   position: { x: 0, y: 0 }, // Will be set by semantic layout or force fallback
+                  zIndex: 10, // Bookmarks on front layer by default
                   data: {
                     id: bookmark.id,
                     title: bookmark.title || 'Untitled',
@@ -404,6 +405,7 @@ export function useGraphData() {
               id: `concept-${concept.id}`,
               type: 'concept',
               position: { x: 0, y: 0 },
+              zIndex: 5, // Concepts on back layer (behind bookmarks)
               data: {
                 id: concept.id,
                 name: concept.name,
@@ -420,6 +422,7 @@ export function useGraphData() {
               id: `entity-${entity.id}`,
               type: 'entity',
               position: { x: 0, y: 0 },
+              zIndex: 5, // Entities on back layer (behind bookmarks)
               data: {
                 id: entity.id,
                 name: entity.name,
