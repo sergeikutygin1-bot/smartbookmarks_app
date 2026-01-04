@@ -51,18 +51,18 @@ const entityHighlightColors = {
   location: 'border-teal-400 ring-teal-300',
 };
 
-// Size tiers based on occurrence count
+// Size tiers based on occurrence count (more dramatic size differences)
 function getSizeClass(occurrenceCount?: number): { minWidth: string; padding: string; iconSize: string; fontSize: string } {
   const count = occurrenceCount || 0;
 
   if (count >= 10) {
-    // Even more frequent (10+)
-    return { minWidth: 'min-w-[180px]', padding: 'p-3.5', iconSize: 'w-4.5 h-4.5', fontSize: 'text-sm' };
+    // Even more frequent (10+) - LARGE
+    return { minWidth: 'min-w-[200px]', padding: 'p-4', iconSize: 'w-5 h-5', fontSize: 'text-base' };
   } else if (count >= 3) {
-    // More frequent (3-9)
-    return { minWidth: 'min-w-[160px]', padding: 'p-3', iconSize: 'w-4 h-4', fontSize: 'text-xs' };
+    // More frequent (3-9) - MEDIUM
+    return { minWidth: 'min-w-[170px]', padding: 'p-3.5', iconSize: 'w-4.5 h-4.5', fontSize: 'text-sm' };
   } else {
-    // Default (1-2)
+    // Default (1-2) - SMALL
     return { minWidth: 'min-w-[140px]', padding: 'p-2.5', iconSize: 'w-3.5 h-3.5', fontSize: 'text-xs' };
   }
 }

@@ -11,18 +11,18 @@ export interface ConceptNodeData {
   parentConcept?: string;
 }
 
-// Size tiers based on occurrence count
+// Size tiers based on occurrence count (more dramatic size differences)
 function getSizeClass(occurrenceCount?: number): { minWidth: string; padding: string; iconSize: string; fontSize: string } {
   const count = occurrenceCount || 0;
 
   if (count >= 10) {
-    // Even more frequent (10+)
-    return { minWidth: 'min-w-[200px]', padding: 'p-4', iconSize: 'w-5 h-5', fontSize: 'text-base' };
+    // Even more frequent (10+) - LARGE
+    return { minWidth: 'min-w-[220px]', padding: 'p-4.5', iconSize: 'w-6 h-6', fontSize: 'text-lg' };
   } else if (count >= 3) {
-    // More frequent (3-9)
-    return { minWidth: 'min-w-[180px]', padding: 'p-3.5', iconSize: 'w-4.5 h-4.5', fontSize: 'text-sm' };
+    // More frequent (3-9) - MEDIUM
+    return { minWidth: 'min-w-[190px]', padding: 'p-4', iconSize: 'w-5 h-5', fontSize: 'text-base' };
   } else {
-    // Default (1-2)
+    // Default (1-2) - SMALL
     return { minWidth: 'min-w-[160px]', padding: 'p-3', iconSize: 'w-4 h-4', fontSize: 'text-sm' };
   }
 }
