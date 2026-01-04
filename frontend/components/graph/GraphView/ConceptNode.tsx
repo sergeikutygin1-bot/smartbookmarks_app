@@ -11,12 +11,29 @@ export interface ConceptNodeData {
   parentConcept?: string;
 }
 
+// Size tiers based on occurrence count
+function getSizeClass(occurrenceCount?: number): { minWidth: string; padding: string; iconSize: string; fontSize: string } {
+  const count = occurrenceCount || 0;
+
+  if (count >= 10) {
+    // Even more frequent (10+)
+    return { minWidth: 'min-w-[200px]', padding: 'p-4', iconSize: 'w-5 h-5', fontSize: 'text-base' };
+  } else if (count >= 3) {
+    // More frequent (3-9)
+    return { minWidth: 'min-w-[180px]', padding: 'p-3.5', iconSize: 'w-4.5 h-4.5', fontSize: 'text-sm' };
+  } else {
+    // Default (1-2)
+    return { minWidth: 'min-w-[160px]', padding: 'p-3', iconSize: 'w-4 h-4', fontSize: 'text-sm' };
+  }
+}
+
 export const ConceptNode = memo(({ data, selected }: NodeProps<ConceptNodeData>) => {
   const isHighlighted = (data as any).isHighlighted;
+  const sizeClass = getSizeClass(data.occurrenceCount);
 
   return (
     <div
-      className={`border rounded-lg p-3 shadow-sm min-w-[160px] max-w-[220px] transition-all cursor-pointer ${
+      className={`border rounded-lg shadow-sm max-w-[240px] transition-all cursor-pointer ${sizeClass.minWidth} ${sizeClass.padding} ${
         selected
           ? 'bg-purple-50 border-purple-500 shadow-md ring-2 ring-purple-500 ring-opacity-50'
           : isHighlighted
@@ -32,9 +49,9 @@ export const ConceptNode = memo(({ data, selected }: NodeProps<ConceptNodeData>)
       />
 
       <div className="flex items-center gap-2">
-        <Lightbulb className="w-4 h-4 text-purple-600 flex-shrink-0" />
+        <Lightbulb className={`${sizeClass.iconSize} text-purple-600 flex-shrink-0`} />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-black truncate">
+          <div className={`${sizeClass.fontSize} font-medium text-black truncate`}>
             {data.name}
           </div>
           {data.occurrenceCount && data.occurrenceCount > 1 && (

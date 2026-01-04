@@ -56,8 +56,8 @@ export class ProjectionAgent {
   private readonly CANVAS_WIDTH = 4000;
   private readonly CANVAS_HEIGHT = 3000;
   private readonly CANVAS_PADDING = 200;
-  private readonly CONCEPT_RADIUS = 250; // Distance from bookmark
-  private readonly ENTITY_RADIUS = 350; // Slightly farther than concepts
+  private readonly CONCEPT_RADIUS = 400; // Distance from bookmark (increased for better spacing)
+  private readonly ENTITY_RADIUS = 500; // Slightly farther than concepts
 
   /**
    * Main entry point - compute all positions for a user's graph
@@ -187,8 +187,8 @@ export class ProjectionAgent {
       const umap = new UMAP({
         nComponents: 2, // 2D output
         nNeighbors: Math.min(15, validEmbeddings.length - 1), // Adaptive
-        minDist: 0.1, // Spacing between clusters
-        spread: 1.0, // Overall spread
+        minDist: 0.3, // Spacing between clusters (increased for better separation)
+        spread: 2.5, // Overall spread (increased for more spacing)
         nEpochs: 200, // Iterations (faster than default 400)
         random: seedrandom(userId), // Deterministic
       });

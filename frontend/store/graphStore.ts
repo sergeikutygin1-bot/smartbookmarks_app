@@ -20,6 +20,7 @@ interface GraphState {
   selectedNodeId: string | null;
   hoveredNodeId: string | null;
   highlightedNodeIds: string[];
+  overlapNodeIds: string[]; // Nodes connected to multiple selected nodes
   filters: GraphFilters;
 
   // History State
@@ -30,6 +31,7 @@ interface GraphState {
   setSelectedNode: (id: string | null) => void;
   setHoveredNode: (id: string | null) => void;
   setHighlightedNodes: (ids: string[]) => void;
+  setOverlapNodes: (ids: string[]) => void;
   clearHighlights: () => void;
   setFilter: <K extends keyof GraphFilters>(key: K, value: GraphFilters[K]) => void;
   resetFilters: () => void;
@@ -51,6 +53,7 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   selectedNodeId: null,
   hoveredNodeId: null,
   highlightedNodeIds: [],
+  overlapNodeIds: [],
   filters: defaultFilters,
   history: [],
   historyIndex: -1,
@@ -58,7 +61,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   setSelectedNode: (id) => set({ selectedNodeId: id }),
   setHoveredNode: (id) => set({ hoveredNodeId: id }),
   setHighlightedNodes: (ids) => set({ highlightedNodeIds: ids }),
-  clearHighlights: () => set({ highlightedNodeIds: [] }),
+  setOverlapNodes: (ids) => set({ overlapNodeIds: ids }),
+  clearHighlights: () => set({ highlightedNodeIds: [], overlapNodeIds: [] }),
   setFilter: (key, value) =>
     set((state) => ({
       filters: {

@@ -11,20 +11,25 @@ export interface BookmarkNodeData {
   domain?: string;
   contentType?: string;
   isHighlighted?: boolean;
+  isOverlap?: boolean;
 }
 
 export const BookmarkNode = memo(({ data, selected }: NodeProps<BookmarkNodeData>) => {
   const isHighlighted = data.isHighlighted;
+  const isOverlap = data.isOverlap;
 
   return (
     <div
       className={`border rounded-lg p-4 shadow-md min-w-[220px] max-w-[300px] transition-all ${
         selected
           ? 'bg-blue-50 border-blue-500 shadow-lg ring-2 ring-blue-500 ring-opacity-50'
+          : isOverlap
+          ? 'bg-amber-50 border-amber-500 shadow-xl ring-4 ring-amber-400 ring-opacity-70'
           : isHighlighted
           ? 'bg-white border-blue-400 shadow-lg ring-2 ring-blue-300 ring-opacity-60'
           : 'bg-white border-gray-300 hover:border-gray-400 hover:shadow-md'
       }`}
+      title={isOverlap ? 'Connected to multiple concepts/entities (overlap)' : undefined}
     >
       <Handle
         type="target"
@@ -63,7 +68,8 @@ export const BookmarkNode = memo(({ data, selected }: NodeProps<BookmarkNodeData
 }, (prev, next) =>
   prev.selected === next.selected &&
   prev.data.title === next.data.title &&
-  prev.data.isHighlighted === next.data.isHighlighted
+  prev.data.isHighlighted === next.data.isHighlighted &&
+  prev.data.isOverlap === next.data.isOverlap
 );
 
 BookmarkNode.displayName = 'BookmarkNode';

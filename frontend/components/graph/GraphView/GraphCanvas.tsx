@@ -34,10 +34,13 @@ const nodeTypes = {
 export function GraphCanvas() {
   const { data, isLoading, error } = useGraphData();
   const {
+    selectedNodeId,
     setSelectedNode,
     setHighlightedNodes,
+    setOverlapNodes,
     clearHighlights,
     highlightedNodeIds,
+    overlapNodeIds,
     addHistoryEntry,
     undo,
     redo,
@@ -69,10 +72,40 @@ export function GraphCanvas() {
         data: {
           ...node.data,
           isHighlighted: highlightedNodeIds.includes(node.id),
+          isOverlap: overlapNodeIds.includes(node.id),
         },
       }))
     );
-  }, [highlightedNodeIds, setNodes]);
+  }, [highlightedNodeIds, overlapNodeIds, setNodes]);
+
+  // Update edge opacity based on selection
+  useEffect(() => {
+    setEdges((eds) =>
+      eds.map((edge) => {
+        if (!selectedNodeId) {
+          // No selection: default opacity (10%)
+          return {
+            ...edge,
+            style: {
+              ...edge.style,
+              strokeOpacity: edge.data?.defaultOpacity || 0.1,
+            },
+          };
+        }
+
+        // Check if edge is connected to selected node
+        const isConnected = edge.source === selectedNodeId || edge.target === selectedNodeId;
+
+        return {
+          ...edge,
+          style: {
+            ...edge.style,
+            strokeOpacity: isConnected ? 1.0 : 0.1, // 100% for connected, 10% for others
+          },
+        };
+      })
+    );
+  }, [selectedNodeId, setEdges]);
 
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
@@ -141,8 +174,39 @@ export function GraphCanvas() {
         .map((edge) => (edge.source === node.id ? edge.target : edge.source));
 
       setHighlightedNodes(connectedNodeIds);
+
+      // Detect overlaps: bookmarks connected to multiple concepts/entities
+      // Count connections for each bookmark
+      const bookmarkConnectionCount = new Map<string, number>();
+
+      edges.forEach((edge) => {
+        // Check if edge connects to a concept or entity
+        const sourceIsConcept = edge.source.startsWith('concept-') || edge.source.startsWith('entity-');
+        const targetIsConcept = edge.target.startsWith('concept-') || edge.target.startsWith('entity-');
+
+        if (sourceIsConcept && edge.target.length === 36) {
+          // Target is a bookmark (UUID format)
+          const count = bookmarkConnectionCount.get(edge.target) || 0;
+          bookmarkConnectionCount.set(edge.target, count + 1);
+        }
+        if (targetIsConcept && edge.source.length === 36) {
+          // Source is a bookmark (UUID format)
+          const count = bookmarkConnectionCount.get(edge.source) || 0;
+          bookmarkConnectionCount.set(edge.source, count + 1);
+        }
+      });
+
+      // Find bookmarks with multiple connections (overlap nodes)
+      const overlapNodes: string[] = [];
+      bookmarkConnectionCount.forEach((count, bookmarkId) => {
+        if (count > 1 && connectedNodeIds.includes(bookmarkId)) {
+          overlapNodes.push(bookmarkId);
+        }
+      });
+
+      setOverlapNodes(overlapNodes);
     },
-    [edges, setSelectedNode, setHighlightedNodes]
+    [edges, setSelectedNode, setHighlightedNodes, setOverlapNodes]
   );
 
   // Handle pane click to clear selection and highlights

@@ -313,6 +313,11 @@ export function useGraphData() {
                         style: {
                           stroke: '#8B5CF6', // Purple for concepts
                           strokeWidth: 1.5,
+                          strokeOpacity: 0.1, // Default 10% opacity
+                        },
+                        data: {
+                          defaultColor: '#8B5CF6',
+                          defaultOpacity: 0.1,
                         },
                       });
                     }
@@ -345,6 +350,11 @@ export function useGraphData() {
                         style: {
                           stroke: '#10B981', // Green for entities
                           strokeWidth: 1.5,
+                          strokeOpacity: 0.1, // Default 10% opacity
+                        },
+                        data: {
+                          defaultColor: '#10B981',
+                          defaultOpacity: 0.1,
                         },
                       });
                     }
@@ -370,6 +380,11 @@ export function useGraphData() {
                         style: {
                           stroke: '#D1D1D6',
                           strokeWidth: Math.max(1, rel.weight * 3),
+                          strokeOpacity: 0.1, // Default 10% opacity
+                        },
+                        data: {
+                          defaultColor: '#D1D1D6',
+                          defaultOpacity: 0.1,
                         },
                       });
                     }
