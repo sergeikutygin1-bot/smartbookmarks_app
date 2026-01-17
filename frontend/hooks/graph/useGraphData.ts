@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Node, Edge } from '@xyflow/react';
 import { useGraphStore } from '@/store/graphStore';
 import { applyForceLayout } from '@/lib/graph/layout';
+import { authenticatedFetch } from '@/lib/api';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3002';
 const STORAGE_KEY = 'graph-node-positions';
@@ -231,7 +232,7 @@ export function useGraphData() {
         setIsLoading(true);
 
         // Fetch graph stats to get all data
-        const response = await fetch(`${BACKEND_URL}/api/v1/graph/stats`);
+        const response = await authenticatedFetch(`${BACKEND_URL}/api/v1/graph/stats`);
 
         if (!response.ok) {
           throw new Error('Failed to fetch graph data');
@@ -251,7 +252,7 @@ export function useGraphData() {
         // Step 1: Fetch bookmarks (only show completed/enriched bookmarks in graph)
         let bookmarkNodes: Node[] = [];
         if (filters.nodeTypes.includes('bookmarks')) {
-          const bookmarksResponse = await fetch(`${BACKEND_URL}/api/bookmarks?limit=50&status=completed`);
+          const bookmarksResponse = await authenticatedFetch(`${BACKEND_URL}/api/bookmarks?limit=50&status=completed`);
           if (bookmarksResponse.ok) {
             const bookmarksData = await bookmarksResponse.json();
             bookmarksData.data?.forEach((bookmark: any) => {
@@ -282,7 +283,7 @@ export function useGraphData() {
         await Promise.all(
           bookmarkNodes.map(async (bookmarkNode) => {
             try {
-              const relatedResponse = await fetch(
+              const relatedResponse = await authenticatedFetch(
                 `${BACKEND_URL}/api/v1/graph/bookmarks/${bookmarkNode.id}/related?limit=20`
               );
 
@@ -442,7 +443,7 @@ export function useGraphData() {
         if (ENABLE_SEMANTIC_LAYOUT) {
           try {
             console.log(`[useGraphData] Fetching semantic positions from backend`);
-            const positionsResponse = await fetch(`${BACKEND_URL}/api/v1/graph/positions`);
+            const positionsResponse = await authenticatedFetch(`${BACKEND_URL}/api/v1/graph/positions`);
 
             if (positionsResponse.ok) {
               const positionsResult = await positionsResponse.json();

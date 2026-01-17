@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthHeaders } from '../../auth-helper';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const response = await fetch(`${BACKEND_API}/${id}`);
+    const response = await fetch(`${BACKEND_API}/${id}`, {
+      headers: getAuthHeaders(request),
+    });
 
     if (!response.ok) {
       if (response.status === 404) {
@@ -53,10 +56,7 @@ export async function PATCH(
 
     const response = await fetch(`${BACKEND_API}/${id}`, {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Mock-User-Id': 'dev-user-id-12345', // Mock auth for development
-      },
+      headers: getAuthHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
 
@@ -94,6 +94,7 @@ export async function DELETE(
     const { id } = await params;
     const response = await fetch(`${BACKEND_API}/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(request),
     });
 
     if (!response.ok) {

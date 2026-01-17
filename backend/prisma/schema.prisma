@@ -23,6 +23,7 @@ model User {
   entities      Entity[]
   concepts      Concept[]
   relationships Relationship[]
+  refreshTokens RefreshToken[]
 
   @@map("users")
 }
@@ -155,4 +156,19 @@ model Relationship {
   @@index([userId, relationshipType, weight(sort: Desc)], name: "relationships_weight_idx")
   @@index([userId, sourceType, sourceId, targetType, targetId], name: "relationships_source_target_idx")
   @@map("relationships")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique @db.VarChar(500)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
 }

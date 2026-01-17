@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthHeaders } from '../auth-helper';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,9 +22,7 @@ export async function GET(request: NextRequest) {
     });
 
     const response = await fetch(backendUrl.toString(), {
-      headers: {
-        'X-Mock-User-Id': 'dev-user-id-12345', // Mock auth for development
-      },
+      headers: getAuthHeaders(request),
     });
 
     if (!response.ok) {
@@ -51,9 +50,7 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(BACKEND_API, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
 

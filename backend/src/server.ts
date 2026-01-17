@@ -18,9 +18,11 @@ import searchRoutes from "./routes/search";
 import bookmarksRoutes from "./routes/bookmarks";
 import enrichRoutes from "./routes/enrich";
 import graphRoutes from "./routes/graph";
+import authRoutes from "./routes/auth";
 import { enrichmentQueue } from "./queues/enrichmentQueue";
 import { authMiddleware } from "./middleware/auth";
-import { enrichmentRateLimit, generalRateLimit, searchRateLimit } from "./middleware/rateLimiter";
+import { adminMiddleware } from "./middleware/adminAuth";
+import { enrichmentRateLimit, generalRateLimit, searchRateLimit, authRateLimit } from "./middleware/rateLimiter";
 import { checkDailyBudget } from "./middleware/costControl";
 
 const app = express();
@@ -60,8 +62,11 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "smart-bookmarks-backend" });
 });
 
-// Admin dashboard routes
-app.use("/admin", adminRoutes);
+// Authentication routes (with auth rate limiting)
+app.use("/api/v1/auth", authRateLimit, authRoutes);
+
+// Admin dashboard routes (protected)
+app.use("/admin", authMiddleware, adminMiddleware, adminRoutes);
 
 // Search routes (with dedicated rate limit: 30 req/min)
 app.use("/search", searchRateLimit, searchRoutes);

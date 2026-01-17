@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
+import { authenticatedFetch } from '@/lib/api';
 
 export interface BookmarkMetadata {
   concepts: Array<{
@@ -40,7 +41,7 @@ async function pollMetadataUntilReady(
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `/api/graph/bookmarks/${bookmarkId}/related`
       );
 
@@ -158,7 +159,7 @@ export function useBookmarkMetadata(
       }
 
       // Normal query - single fetch attempt
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `/api/graph/bookmarks/${bookmarkId}/related`
       );
 

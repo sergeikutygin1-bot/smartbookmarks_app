@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { authenticatedFetch } from '@/lib/api';
 
 interface Concept {
   id: string;
@@ -25,7 +26,7 @@ export function useAllConcepts(limit: number = 100) {
   return useQuery<Concept[]>({
     queryKey: ['concepts', limit],
     queryFn: async () => {
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `/api/graph/concepts?limit=${limit}`
       );
       if (!response.ok) throw new Error('Failed to fetch concepts');
@@ -51,7 +52,7 @@ export function useAllEntities(type?: string, limit: number = 100) {
       const params = new URLSearchParams({ limit: String(limit) });
       if (type) params.append('type', type);
 
-      const response = await fetch(
+      const response = await authenticatedFetch(
         `/api/graph/entities?${params}`
       );
       if (!response.ok) throw new Error('Failed to fetch entities');

@@ -1,30 +1,39 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { tokenService } from '../services/auth/TokenService';
 
-const prisma = new PrismaClient();
-
-// ⚠️ PLACEHOLDER: Replace with JWT validation in production
 export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // For development, use the first user in the database
-    // In production, validate JWT token here
-    const user = await prisma.user.findFirst();
-
-    if (!user) {
+    // Extract JWT from Authorization header
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
-        error: 'No user found. Please create a user first.'
+        error: 'Unauthorized',
+        message: 'Missing or invalid Authorization header'
       });
     }
 
+    const token = authHeader.substring(7); // Remove "Bearer "
+
+    // Verify JWT
+    const decoded = tokenService.verifyAccessToken(token);
+
+    if (!decoded) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Invalid or expired token'
+      });
+    }
+
+    // Attach user to request
     req.user = {
-      id: user.id,
-      email: user.email,
+      id: decoded.userId,
+      email: decoded.email,
     };
 
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
-    res.status(500).json({ error: 'Authentication error' });
+    return res.status(500).json({ error: 'Authentication error' });
   }
 };
 

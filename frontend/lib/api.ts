@@ -1,8 +1,75 @@
 import { Bookmark } from '@/store/bookmarksStore';
 import { toast } from 'sonner';
 import { apiRoutes } from './routes';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './auth';
 
 const API_BASE = '/api';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3002';
+
+/**
+ * Authenticated fetch wrapper with automatic token refresh
+ * Adds Authorization header and handles 401 errors by refreshing tokens
+ */
+export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const accessToken = getAccessToken();
+
+  // Add Authorization header if we have a token
+  const headers = {
+    ...options.headers,
+    ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+  };
+
+  // Make the request
+  let response = await fetch(url, { ...options, headers });
+
+  // If 401 Unauthorized and we have a refresh token, try to refresh
+  if (response.status === 401 && getRefreshToken()) {
+    console.log('[API] Access token expired, attempting refresh...');
+
+    try {
+      // Try to refresh the token
+      const refreshResponse = await fetch(`${BACKEND_URL}/api/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: getRefreshToken() }),
+      });
+
+      if (refreshResponse.ok) {
+        const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await refreshResponse.json();
+        setTokens(newAccessToken, newRefreshToken);
+
+        console.log('[API] Token refreshed successfully, retrying request');
+
+        // Retry the original request with the new token
+        const newHeaders = {
+          ...options.headers,
+          'Authorization': `Bearer ${newAccessToken}`,
+        };
+
+        response = await fetch(url, { ...options, headers: newHeaders });
+      } else {
+        // Refresh failed, clear tokens and redirect to login
+        console.log('[API] Token refresh failed, redirecting to login');
+        clearTokens();
+
+        // Redirect to login page
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+      }
+    } catch (error) {
+      console.error('[API] Error refreshing token:', error);
+      clearTokens();
+
+      // Redirect to login page
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+  }
+
+  return response;
+}
 
 /**
  * Custom error for rate limiting (429 responses)
@@ -152,12 +219,90 @@ export interface BookmarkFilters {
 /**
  * API client for bookmarks
  */
+/**
+ * API client for authentication
+ */
+export const authApi = {
+  /**
+   * Register a new user
+   */
+  async register(email: string, password: string, confirmPassword: string): Promise<{
+    user: any;
+    tokens: {
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+      tokenType: 'Bearer';
+    };
+  }> {
+    const response = await fetch(`${BACKEND_URL}/api/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, confirmPassword }),
+    });
+
+    return handleResponse(response);
+  },
+
+  /**
+   * Login with email and password
+   */
+  async login(email: string, password: string): Promise<{
+    user: any;
+    tokens: {
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+      tokenType: 'Bearer';
+    };
+  }> {
+    const response = await fetch(`${BACKEND_URL}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    return handleResponse(response);
+  },
+
+  /**
+   * Logout (revoke refresh token)
+   */
+  async logout(refreshToken: string): Promise<void> {
+    const accessToken = getAccessToken();
+
+    const response = await fetch(`${BACKEND_URL}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+      },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    await handleResponse(response);
+  },
+
+  /**
+   * Get current authenticated user
+   */
+  async getCurrentUser(): Promise<any> {
+    const response = await authenticatedFetch(`${BACKEND_URL}/api/v1/auth/me`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const json = await handleResponse(response);
+    return json.user;
+  },
+};
+
 export const bookmarksApi = {
   /**
    * Fetch all bookmarks with optional filters
    */
   async getAll(filters?: BookmarkFilters): Promise<Bookmark[]> {
-    const response = await fetch(apiRoutes.bookmarks.list(filters), {
+    const response = await authenticatedFetch(apiRoutes.bookmarks.list(filters), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -172,7 +317,7 @@ export const bookmarksApi = {
    * Get a single bookmark by ID
    */
   async getById(id: string): Promise<Bookmark> {
-    const response = await fetch(apiRoutes.bookmarks.detail(id), {
+    const response = await authenticatedFetch(apiRoutes.bookmarks.detail(id), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -186,7 +331,7 @@ export const bookmarksApi = {
    * Create a new bookmark
    */
   async create(data: { url: string; title?: string }): Promise<Bookmark> {
-    const response = await fetch(apiRoutes.bookmarks.create(), {
+    const response = await authenticatedFetch(apiRoutes.bookmarks.create(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -201,7 +346,7 @@ export const bookmarksApi = {
    * Update a bookmark
    */
   async update(id: string, data: Partial<Bookmark>): Promise<Bookmark> {
-    const response = await fetch(apiRoutes.bookmarks.update(id), {
+    const response = await authenticatedFetch(apiRoutes.bookmarks.update(id), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -216,7 +361,7 @@ export const bookmarksApi = {
    * Delete a bookmark
    */
   async delete(id: string): Promise<void> {
-    const response = await fetch(apiRoutes.bookmarks.delete(id), {
+    const response = await authenticatedFetch(apiRoutes.bookmarks.delete(id), {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
     });
@@ -323,7 +468,7 @@ export const bookmarksApi = {
         throw new Error('Enrichment cancelled');
       }
 
-      const response = await fetch(apiRoutes.enrich.status(jobId), { signal });
+      const response = await authenticatedFetch(apiRoutes.enrich.status(jobId), { signal });
 
       if (!response.ok) {
         throw new Error('Failed to get job status');
@@ -397,7 +542,7 @@ export const bookmarksApi = {
       // Step 1: Queue the enrichment job (returns immediately)
       console.log(`[API] Queueing enrichment job for: ${id}`);
 
-      const queueResponse = await fetch(apiRoutes.bookmarks.enrich(id), {
+      const queueResponse = await authenticatedFetch(apiRoutes.bookmarks.enrich(id), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal,
@@ -415,7 +560,7 @@ export const bookmarksApi = {
       // So we just need to fetch the updated bookmark instead of PATCHing again
       console.log(`[API] Fetching updated bookmark: ${id}`);
 
-      const fetchResponse = await fetch(apiRoutes.bookmarks.detail(id), {
+      const fetchResponse = await authenticatedFetch(apiRoutes.bookmarks.detail(id), {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         signal,
@@ -445,7 +590,7 @@ export const bookmarksApi = {
     }
 
     // Call backend search endpoint with GET request
-    const response = await fetch(apiRoutes.search.hybrid(query, options?.mode, options?.limit));
+    const response = await authenticatedFetch(apiRoutes.search.hybrid(query, options?.mode, options?.limit));
 
     const json = await handleResponse(response);
 

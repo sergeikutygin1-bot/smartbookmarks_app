@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthHeaders } from '../../../auth-helper';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,9 @@ export async function POST(
     const { id } = await params;
 
     // Get bookmark from backend
-    const bookmarkResponse = await fetch(`${BACKEND_API}/${id}`);
+    const bookmarkResponse = await fetch(`${BACKEND_API}/${id}`, {
+      headers: getAuthHeaders(request),
+    });
 
     if (!bookmarkResponse.ok) {
       if (bookmarkResponse.status === 404) {
@@ -39,7 +42,9 @@ export async function POST(
     const bookmark = bookmarkData.data;
 
     // Get all bookmarks to extract existing tags
-    const allBookmarksResponse = await fetch(BACKEND_API);
+    const allBookmarksResponse = await fetch(BACKEND_API, {
+      headers: getAuthHeaders(request),
+    });
     if (!allBookmarksResponse.ok) {
       throw new Error('Failed to fetch bookmarks for tag consistency');
     }
@@ -53,10 +58,7 @@ export async function POST(
     // Queue the enrichment job with backend (returns immediately)
     const queueResponse = await fetch(ENRICHMENT_API, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Mock-User-Id': 'dev-user-id-12345', // Mock auth for development
-      },
+      headers: getAuthHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         url: bookmark.url,
         existingTags,
@@ -64,7 +66,7 @@ export async function POST(
         userSummary: bookmark.summary,
         userTags: bookmark.tags,
         bookmarkId: id, // Add bookmarkId so worker can save results
-        userId: 'dev-user-id-12345', // Add userId for database operations
+        // userId will be extracted from JWT by backend auth middleware
       }),
     });
 
@@ -112,7 +114,9 @@ export async function PATCH(
     const enrichmentData = await request.json();
 
     // Get current bookmark state from backend
-    const bookmarkResponse = await fetch(`${BACKEND_API}/${id}`);
+    const bookmarkResponse = await fetch(`${BACKEND_API}/${id}`, {
+      headers: getAuthHeaders(request),
+    });
 
     if (!bookmarkResponse.ok) {
       if (bookmarkResponse.status === 404) {
@@ -150,10 +154,7 @@ export async function PATCH(
     // Update bookmark via backend API
     const updateResponse = await fetch(`${BACKEND_API}/${id}`, {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Mock-User-Id': 'dev-user-id-12345', // Mock auth for development
-      },
+      headers: getAuthHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(updatePayload),
     });
 

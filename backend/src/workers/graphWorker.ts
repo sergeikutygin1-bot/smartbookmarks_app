@@ -72,13 +72,13 @@ async function processEntityExtractionJob(
     await graphCache.invalidateEntityCaches(userId);
     await graphCache.invalidateStatsCaches(userId);
 
-    // Track AI costs if GPT was used
+    // Track AI costs if GPT was used (per user)
     if (result.cost) {
       console.log(
         `[GraphWorker:Entity] 💰 Cost: $${result.cost.toFixed(6)}`
       );
       // Track cost (GPT-4o-mini usage)
-      await trackAICost('gpt-4o-mini', 0, 0); // Actual tokens tracked internally
+      await trackAICost(userId, 'gpt-4o-mini', 0, 0); // Actual tokens tracked internally
     }
 
     console.log(
@@ -126,12 +126,12 @@ async function processConceptAnalysisJob(
     await graphCache.invalidateConceptCaches(userId);
     await graphCache.invalidateStatsCaches(userId);
 
-    // Track AI costs
+    // Track AI costs (per user)
     if (result.cost) {
       console.log(
         `[GraphWorker:Concept] 💰 Cost: $${result.cost.toFixed(6)}`
       );
-      await trackAICost('gpt-4o-mini', 0, 0);
+      await trackAICost(userId, 'gpt-4o-mini', 0, 0);
     }
 
     console.log(
