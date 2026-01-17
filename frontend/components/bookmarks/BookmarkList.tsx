@@ -10,6 +10,7 @@ import { groupBookmarksByDate } from "@/lib/date-grouping";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueries } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { authenticatedFetch } from "@/lib/api";
 
 export function BookmarkList() {
   const { selectedBookmarkId, selectBookmark } = useBookmarksStore();
@@ -65,7 +66,7 @@ export function BookmarkList() {
       // This prevents the filtering query from polluting the display queries
       queryKey: ['bookmark-metadata-for-filtering', bookmark.id],
       queryFn: async () => {
-        const response = await fetch(
+        const response = await authenticatedFetch(
           `/api/graph/bookmarks/${bookmark.id}/related`
         );
         if (!response.ok) return { concepts: [], entities: [] };

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthHeaders } from '../../auth-helper';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,9 +23,7 @@ export async function GET(request: NextRequest) {
     }
 
     const response = await fetch(url, {
-      headers: {
-        'X-Mock-User-Id': 'dev-user-id-12345', // Mock auth for development
-      },
+      headers: getAuthHeaders(request),
     });
 
     if (!response.ok) {

@@ -122,13 +122,14 @@ async function processEnrichmentJob(
       `[Worker] 💰 ${job.id} cost: $${costAnalysis.totalCost.toFixed(6)} (${costAnalysis.totalTokens} tokens)`
     );
 
-    // Track costs in Redis for daily budget control
+    // Track costs in Redis for daily budget control (per user)
     // Iterate through all agent traces and track their costs
+    const userId = job.data.userId;
     for (const trace of agentTraces) {
-      if (trace.llmTrace) {
+      if (trace.llmTrace && userId) {
         const { model, inputTokens, outputTokens } = trace.llmTrace;
         if (model && (inputTokens || outputTokens)) {
-          await trackAICost(model, inputTokens || 0, outputTokens || 0);
+          await trackAICost(userId, model, inputTokens || 0, outputTokens || 0);
         }
       }
     }

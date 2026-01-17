@@ -43,13 +43,13 @@ const COST_PER_1K_TOKENS = {
   },
 } as const;
 
-// Default daily budget from environment variable
-const DAILY_BUDGET = parseFloat(process.env.OPENAI_DAILY_BUDGET || '10'); // $10/day default
+// Default daily budget per user from environment variable
+const DAILY_BUDGET_PER_USER = parseFloat(process.env.OPENAI_DAILY_BUDGET_PER_USER || '5'); // $5/day per user default
 
-// Redis key for daily cost tracking
-function getDailyCostKey(): string {
+// Redis key for daily cost tracking (per user)
+function getDailyCostKey(userId: string): string {
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-  return `ai:cost:daily:${today}`;
+  return `ai:cost:daily:${userId}:${today}`;
 }
 
 // Get seconds until next midnight UTC
@@ -62,30 +62,32 @@ function getSecondsUntilMidnight(): number {
 }
 
 /**
- * Get current daily OpenAI spending
+ * Get current daily OpenAI spending for a user
  */
-export async function getDailySpending(): Promise<number> {
-  const costKey = getDailyCostKey();
+export async function getDailySpending(userId: string): Promise<number> {
+  const costKey = getDailyCostKey(userId);
   const cost = await redis.get(costKey);
   return parseFloat(cost || '0');
 }
 
 /**
- * Track OpenAI API cost
+ * Track OpenAI API cost for a user
  *
  * Call this after making an OpenAI API request to track spending.
  *
+ * @param userId - User ID
  * @param model - OpenAI model name
  * @param inputTokens - Number of input tokens
  * @param outputTokens - Number of output tokens
  * @returns Total cost in USD
  */
 export async function trackAICost(
+  userId: string,
   model: string,
   inputTokens: number,
   outputTokens: number = 0
 ): Promise<number> {
-  const costKey = getDailyCostKey();
+  const costKey = getDailyCostKey(userId);
 
   // Get pricing for model (default to gpt-4o-mini if unknown)
   const pricing = COST_PER_1K_TOKENS[model as keyof typeof COST_PER_1K_TOKENS]
@@ -131,14 +133,16 @@ export function estimateEnrichmentCost(): number {
 }
 
 /**
- * Check Daily Budget Middleware
+ * Check Daily Budget Middleware (Per User)
  *
- * Blocks requests if daily OpenAI spending exceeds configured budget.
+ * Blocks requests if daily OpenAI spending exceeds configured budget for this user.
  * Returns 503 Service Unavailable with retry information.
+ *
+ * Note: Requires authMiddleware to run first to populate req.user
  *
  * Usage:
  * ```
- * app.post('/enrich', checkDailyBudget, async (req, res) => { ... });
+ * app.post('/enrich', authMiddleware, checkDailyBudget, async (req, res) => { ... });
  * ```
  */
 export async function checkDailyBudget(
@@ -147,12 +151,22 @@ export async function checkDailyBudget(
   next: NextFunction
 ) {
   try {
-    const currentSpending = await getDailySpending();
+    const userId = req.user?.id;
+
+    if (!userId) {
+      console.error('[CostControl] No user ID found in request. Auth middleware must run first.');
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authentication required for cost control',
+      });
+    }
+
+    const currentSpending = await getDailySpending(userId);
     const estimatedCost = estimateEnrichmentCost();
     const projectedTotal = currentSpending + estimatedCost;
 
     // Check if this request would exceed budget
-    if (projectedTotal > DAILY_BUDGET) {
+    if (projectedTotal > DAILY_BUDGET_PER_USER) {
       const resetTime = new Date();
       resetTime.setUTCDate(resetTime.getUTCDate() + 1);
       resetTime.setUTCHours(0, 0, 0, 0);
@@ -160,16 +174,16 @@ export async function checkDailyBudget(
       const retryAfter = getSecondsUntilMidnight();
 
       console.log(
-        `[CostControl] Daily budget exceeded. Current: $${currentSpending.toFixed(2)}, ` +
-        `Budget: $${DAILY_BUDGET}, Estimated: $${estimatedCost.toFixed(4)}`
+        `[CostControl] Daily budget exceeded for user ${userId}. Current: $${currentSpending.toFixed(2)}, ` +
+        `Budget: $${DAILY_BUDGET_PER_USER}, Estimated: $${estimatedCost.toFixed(4)}`
       );
 
       return res.status(503).json({
         error: 'Service Temporarily Unavailable',
-        message: `AI enrichment is temporarily unavailable. Daily budget of $${DAILY_BUDGET} reached.`,
+        message: `AI enrichment is temporarily unavailable. Your daily budget of $${DAILY_BUDGET_PER_USER} has been reached.`,
         details: {
           currentSpending: parseFloat(currentSpending.toFixed(4)),
-          dailyBudget: DAILY_BUDGET,
+          dailyBudget: DAILY_BUDGET_PER_USER,
           resetsAt: resetTime.toISOString(),
           retryAfter,
         },
@@ -179,14 +193,14 @@ export async function checkDailyBudget(
 
     // Budget check passed
     console.log(
-      `[CostControl] Budget check passed. Current: $${currentSpending.toFixed(4)}/$${DAILY_BUDGET}`
+      `[CostControl] Budget check passed for user ${userId}. Current: $${currentSpending.toFixed(4)}/$${DAILY_BUDGET_PER_USER}`
     );
 
     // Add budget info to response headers
     res.set({
-      'X-AI-Budget-Limit': DAILY_BUDGET.toString(),
+      'X-AI-Budget-Limit': DAILY_BUDGET_PER_USER.toString(),
       'X-AI-Budget-Used': currentSpending.toFixed(4),
-      'X-AI-Budget-Remaining': (DAILY_BUDGET - currentSpending).toFixed(4),
+      'X-AI-Budget-Remaining': (DAILY_BUDGET_PER_USER - currentSpending).toFixed(4),
     });
 
     next();

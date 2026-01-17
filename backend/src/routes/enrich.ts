@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { enrichmentQueue } from '../queues/enrichmentQueue';
 import { logger } from '../services/logger';
 import { authMiddleware } from '../middleware/auth';
+import { jobOwnershipMiddleware } from '../middleware/jobOwnership';
 import { enrichmentRateLimit } from '../middleware/rateLimiter';
 import { checkDailyBudget } from '../middleware/costControl';
 import { QueueEvents } from 'bullmq';
@@ -62,7 +63,7 @@ router.post('/', authMiddleware, enrichmentRateLimit, checkDailyBudget, async (r
  * GET /enrich/:jobId
  * Poll enrichment job status (traditional polling endpoint)
  */
-router.get('/:jobId', async (req: Request, res: Response) => {
+router.get('/:jobId', authMiddleware, jobOwnershipMiddleware, async (req: Request, res: Response) => {
   const { jobId } = req.params;
 
   try {
@@ -127,7 +128,7 @@ router.get('/:jobId', async (req: Request, res: Response) => {
  * - Instant updates (no 2-second polling delay)
  * - Lower backend load (no repeated database queries)
  */
-router.get('/:jobId/stream', async (req: Request, res: Response) => {
+router.get('/:jobId/stream', authMiddleware, jobOwnershipMiddleware, async (req: Request, res: Response) => {
   const { jobId } = req.params;
 
   try {

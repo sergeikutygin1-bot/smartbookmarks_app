@@ -14,6 +14,8 @@ import {
   Node,
   Panel,
   NodeMouseHandler,
+  useReactFlow,
+  ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -23,6 +25,7 @@ import { EntityNode } from './EntityNode';
 import { useGraphData, saveNodePosition } from '@/hooks/graph/useGraphData';
 import { useGraphStore } from '@/store/graphStore';
 import { GraphControls } from './GraphControls';
+import { useBookmarksStore } from '@/store/bookmarksStore';
 
 // Define custom node types
 const nodeTypes = {
@@ -31,8 +34,9 @@ const nodeTypes = {
   entity: EntityNode,
 };
 
-export function GraphCanvas() {
+function GraphCanvasContent() {
   const { data, isLoading, error } = useGraphData();
+  const { selectedBookmarkId, selectBookmark } = useBookmarksStore();
   const {
     selectedNodeId,
     setSelectedNode,
@@ -47,6 +51,7 @@ export function GraphCanvas() {
     canUndo,
     canRedo,
   } = useGraphStore();
+  const { setCenter, getZoom } = useReactFlow();
 
 
   const [nodes, setNodes, onNodesChange] = useNodesState(data?.nodes || []);
@@ -142,6 +147,72 @@ export function GraphCanvas() {
     );
   }, [selectedNodeId, highlightedNodeIds, setNodes]);
 
+  // Sync selectedBookmarkId from sidebar with graph selection
+  useEffect(() => {
+    if (!selectedBookmarkId) return;
+
+    // Avoid infinite loop: only sync if the graph's selected node is different
+    if (selectedNodeId === selectedBookmarkId) return;
+
+    // Only sync if the selected bookmark exists in the graph
+    const selectedNode = nodes.find((node) => node.id === selectedBookmarkId);
+    if (!selectedNode || !edges.length) return;
+
+    // Select the node in the graph
+    setSelectedNode(selectedBookmarkId);
+
+    // Mark the node as selected in React Flow
+    setNodes((nds) =>
+      nds.map((node) => ({
+        ...node,
+        selected: node.id === selectedBookmarkId,
+      }))
+    );
+
+    // Pan to the selected node with smooth animation
+    if (selectedNode.position) {
+      const zoom = getZoom();
+      setCenter(selectedNode.position.x, selectedNode.position.y, {
+        zoom,
+        duration: 500,
+      });
+    }
+
+    // Highlight connected nodes (same logic as handleNodeClick)
+    const connectedNodeIds = edges
+      .filter((edge) => edge.source === selectedBookmarkId || edge.target === selectedBookmarkId)
+      .map((edge) => (edge.source === selectedBookmarkId ? edge.target : edge.source));
+
+    setHighlightedNodes(connectedNodeIds);
+
+    // Detect overlaps
+    const bookmarkConnectionCount = new Map<string, number>();
+
+    edges.forEach((edge) => {
+      const sourceIsConcept = edge.source.startsWith('concept-') || edge.source.startsWith('entity-');
+      const targetIsConcept = edge.target.startsWith('concept-') || edge.target.startsWith('entity-');
+
+      if (sourceIsConcept && edge.target.length === 36) {
+        const count = bookmarkConnectionCount.get(edge.target) || 0;
+        bookmarkConnectionCount.set(edge.target, count + 1);
+      }
+      if (targetIsConcept && edge.source.length === 36) {
+        const count = bookmarkConnectionCount.get(edge.source) || 0;
+        bookmarkConnectionCount.set(edge.source, count + 1);
+      }
+    });
+
+    const overlapNodes: string[] = [];
+    bookmarkConnectionCount.forEach((count, bookmarkId) => {
+      if (count > 1 && connectedNodeIds.includes(bookmarkId)) {
+        overlapNodes.push(bookmarkId);
+      }
+    });
+
+    setOverlapNodes(overlapNodes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBookmarkId, selectedNodeId]);
+
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -203,6 +274,11 @@ export function GraphCanvas() {
     (event, node) => {
       setSelectedNode(node.id);
 
+      // If clicking a bookmark node, sync with bookmarksStore
+      if (node.type === 'bookmark') {
+        selectBookmark(node.id);
+      }
+
       // Highlight all connected nodes (bookmarks, concepts, and entities)
       const connectedNodeIds = edges
         .filter((edge) => edge.source === node.id || edge.target === node.id)
@@ -241,14 +317,22 @@ export function GraphCanvas() {
 
       setOverlapNodes(overlapNodes);
     },
-    [edges, setSelectedNode, setHighlightedNodes, setOverlapNodes]
+    [edges, setSelectedNode, selectBookmark, setHighlightedNodes, setOverlapNodes]
   );
 
   // Handle pane click to clear selection and highlights
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null);
     clearHighlights();
-  }, [setSelectedNode, clearHighlights]);
+
+    // Clear React Flow's node selection
+    setNodes((nds) =>
+      nds.map((node) => ({
+        ...node,
+        selected: false,
+      }))
+    );
+  }, [setSelectedNode, clearHighlights, setNodes]);
 
   // Track position before drag starts
   const handleNodeDragStart = useCallback(
@@ -358,5 +442,14 @@ export function GraphCanvas() {
         </Panel>
       </ReactFlow>
     </div>
+  );
+}
+
+// Wrapper component with ReactFlowProvider
+export function GraphCanvas() {
+  return (
+    <ReactFlowProvider>
+      <GraphCanvasContent />
+    </ReactFlowProvider>
   );
 }
