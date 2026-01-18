@@ -25,7 +25,7 @@ export async function POST(
 
     // Get bookmark from backend
     const bookmarkResponse = await fetch(`${BACKEND_API}/${id}`, {
-      headers: getAuthHeaders(request),
+      headers: await getAuthHeaders(request),
     });
 
     if (!bookmarkResponse.ok) {
@@ -43,7 +43,7 @@ export async function POST(
 
     // Get all bookmarks to extract existing tags
     const allBookmarksResponse = await fetch(BACKEND_API, {
-      headers: getAuthHeaders(request),
+      headers: await getAuthHeaders(request),
     });
     if (!allBookmarksResponse.ok) {
       throw new Error('Failed to fetch bookmarks for tag consistency');
@@ -58,7 +58,7 @@ export async function POST(
     // Queue the enrichment job with backend (returns immediately)
     const queueResponse = await fetch(ENRICHMENT_API, {
       method: 'POST',
-      headers: getAuthHeaders(request, { 'Content-Type': 'application/json' }),
+      headers: await getAuthHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         url: bookmark.url,
         existingTags,
@@ -115,7 +115,7 @@ export async function PATCH(
 
     // Get current bookmark state from backend
     const bookmarkResponse = await fetch(`${BACKEND_API}/${id}`, {
-      headers: getAuthHeaders(request),
+      headers: await getAuthHeaders(request),
     });
 
     if (!bookmarkResponse.ok) {
@@ -154,7 +154,7 @@ export async function PATCH(
     // Update bookmark via backend API
     const updateResponse = await fetch(`${BACKEND_API}/${id}`, {
       method: 'PATCH',
-      headers: getAuthHeaders(request, { 'Content-Type': 'application/json' }),
+      headers: await getAuthHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(updatePayload),
     });
 

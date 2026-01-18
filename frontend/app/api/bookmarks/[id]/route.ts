@@ -18,7 +18,7 @@ export async function GET(
   try {
     const { id } = await params;
     const response = await fetch(`${BACKEND_API}/${id}`, {
-      headers: getAuthHeaders(request),
+      headers: await getAuthHeaders(request),
     });
 
     if (!response.ok) {
@@ -56,7 +56,7 @@ export async function PATCH(
 
     const response = await fetch(`${BACKEND_API}/${id}`, {
       method: 'PATCH',
-      headers: getAuthHeaders(request, { 'Content-Type': 'application/json' }),
+      headers: await getAuthHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
 
@@ -94,7 +94,7 @@ export async function DELETE(
     const { id } = await params;
     const response = await fetch(`${BACKEND_API}/${id}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(request),
+      headers: await getAuthHeaders(request),
     });
 
     if (!response.ok) {

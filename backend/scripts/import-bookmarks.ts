@@ -1,133 +1,212 @@
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import prisma from '../src/db/prisma';
+import { PrismaClient } from '@prisma/client';
+import fs from 'fs';
 
-interface BookmarkData {
-  id: string;
-  url: string;
-  title: string;
-  domain: string;
-  contentType: string;
-  tags: string[];
-  summary: string;
-  createdAt: string;
-  updatedAt: string;
-  processedAt?: string;
-  embeddedAt?: string;
-  embedding: number[];
-}
+const prisma = new PrismaClient();
 
-interface ImportData {
-  bookmarks: BookmarkData[];
-}
+async function main() {
+  const adminEmail = 'admin@smartbookmarks.app';
 
-async function importBookmarks() {
-  console.log('🔄 Starting bookmark import...\n');
+  // Get admin user
+  const adminUser = await prisma.user.findUnique({
+    where: { email: adminEmail },
+  });
 
-  // Read JSON file
-  const jsonPath = join(__dirname, '../../frontend/.data/bookmarks.json');
-  const data: ImportData = JSON.parse(readFileSync(jsonPath, 'utf-8'));
-
-  console.log(`📊 Found ${data.bookmarks.length} bookmarks to import\n`);
-
-  // Get or create default user
-  let user = await prisma.user.findFirst();
-  if (!user) {
-    console.log('👤 Creating default user...');
-    user = await prisma.user.create({
-      data: {
-        email: 'user@smartbookmarks.local',
-        passwordHash: 'placeholder', // User can set password later
-      },
-    });
-    console.log(`✓ Created user: ${user.email}\n`);
-  } else {
-    console.log(`✓ Using existing user: ${user.email}\n`);
+  if (!adminUser) {
+    throw new Error('Admin user not found. Please run create-admin-and-import.ts first.');
   }
 
-  let imported = 0;
-  let skipped = 0;
+  console.log(`Importing bookmarks for admin user: ${adminUser.email} (${adminUser.id})`);
 
-  for (const bookmark of data.bookmarks) {
-    try {
-      // Check if bookmark already exists
-      const existing = await prisma.bookmark.findFirst({
-        where: { url: bookmark.url, userId: user.id },
-      });
+  // Read exported data
+  const bookmarksRaw = fs.readFileSync('/tmp/bookmarks_export.json', 'utf-8').trim();
+  const tagsRaw = fs.readFileSync('/tmp/tags_export.json', 'utf-8').trim();
+  const bookmarkTagsRaw = fs.readFileSync('/tmp/bookmark_tags_export.json', 'utf-8').trim();
+  const entitiesRaw = fs.readFileSync('/tmp/entities_export.json', 'utf-8').trim();
+  const conceptsRaw = fs.readFileSync('/tmp/concepts_export.json', 'utf-8').trim();
+  const relationshipsRaw = fs.readFileSync('/tmp/relationships_export.json', 'utf-8').trim();
 
-      if (existing) {
-        console.log(`⏭  Skipped (exists): ${bookmark.title}`);
-        skipped++;
-        continue;
-      }
+  const bookmarks = JSON.parse(bookmarksRaw);
+  const tags = tagsRaw === 'null' ? [] : JSON.parse(tagsRaw);
+  const bookmarkTags = bookmarkTagsRaw === 'null' ? [] : JSON.parse(bookmarkTagsRaw);
+  const entities = entitiesRaw === 'null' ? [] : JSON.parse(entitiesRaw);
+  const concepts = conceptsRaw === 'null' ? [] : JSON.parse(conceptsRaw);
+  const relationships = relationshipsRaw === 'null' ? [] : JSON.parse(relationshipsRaw);
 
-      // Create bookmark
-      const createdBookmark = await prisma.bookmark.create({
-        data: {
-          userId: user.id,
-          url: bookmark.url,
-          title: bookmark.title,
-          domain: bookmark.domain,
-          summary: bookmark.summary,
-          contentType: bookmark.contentType as any,
-          status: 'completed',
-          embedding: bookmark.embedding,
-          createdAt: new Date(bookmark.createdAt),
-          updatedAt: new Date(bookmark.updatedAt),
-          processedAt: bookmark.processedAt ? new Date(bookmark.processedAt) : null,
-        },
-      });
+  console.log(`Found ${bookmarks.length} bookmarks to import`);
+  console.log(`Found ${tags.length} tags to import`);
+  console.log(`Found ${entities.length} entities to import`);
+  console.log(`Found ${concepts.length} concepts to import`);
+  console.log(`Found ${relationships.length} relationships to import`);
 
-      // Create or link tags
-      if (bookmark.tags && bookmark.tags.length > 0) {
-        for (const tagName of bookmark.tags) {
-          const normalizedName = tagName.toLowerCase().trim();
+  // Import tags first (with updated user_id)
+  console.log('\nImporting tags...');
+  for (const tag of tags) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO tags (id, user_id, name, normalized_name, color, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6::timestamp)
+      ON CONFLICT (id) DO NOTHING
+    `, tag.id, adminUser.id, tag.name, tag.normalized_name, tag.color, tag.created_at);
+  }
+  console.log(`✓ Imported ${tags.length} tags`);
 
-          // Get or create tag
-          let tag = await prisma.tag.findFirst({
-            where: {
-              userId: user.id,
-              normalizedName,
-            },
-          });
+  // Import bookmarks (with updated user_id)
+  console.log('\nImporting bookmarks...');
+  for (const bookmark of bookmarks) {
+    // Handle embedding and search_vector which are special types
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO bookmarks (
+        id, user_id, url, title, domain, source, summary, key_points,
+        content_type, status, metadata, embedding, search_vector,
+        centrality_score, graph_x, graph_y, graph_positioned_at,
+        created_at, updated_at, processed_at
+      )
+      VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8::text[],
+        $9, $10, $11::jsonb, $12::vector, $13::tsvector,
+        $14, $15, $16, $17::timestamp,
+        $18::timestamp, $19::timestamp, $20::timestamp
+      )
+      ON CONFLICT (id) DO NOTHING
+    `,
+      bookmark.id,
+      adminUser.id,
+      bookmark.url,
+      bookmark.title,
+      bookmark.domain,
+      bookmark.source,
+      bookmark.summary,
+      bookmark.key_points,
+      bookmark.content_type,
+      bookmark.status,
+      bookmark.metadata,
+      bookmark.embedding,
+      bookmark.search_vector,
+      bookmark.centrality_score || 0,
+      bookmark.graph_x,
+      bookmark.graph_y,
+      bookmark.graph_positioned_at,
+      bookmark.created_at,
+      bookmark.updated_at,
+      bookmark.processed_at
+    );
+  }
+  console.log(`✓ Imported ${bookmarks.length} bookmarks`);
 
-          if (!tag) {
-            tag = await prisma.tag.create({
-              data: {
-                userId: user.id,
-                name: tagName,
-                normalizedName,
-              },
-            });
-          }
+  // Import bookmark-tag relationships
+  console.log('\nImporting bookmark-tag relationships...');
+  for (const bt of bookmarkTags) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO bookmark_tags (bookmark_id, tag_id, auto_generated)
+      VALUES ($1, $2, $3)
+      ON CONFLICT DO NOTHING
+    `, bt.bookmark_id, bt.tag_id, bt.auto_generated);
+  }
+  console.log(`✓ Imported ${bookmarkTags.length} bookmark-tag relationships`);
 
-          // Link tag to bookmark
-          await prisma.bookmarkTag.create({
-            data: {
-              bookmarkId: createdBookmark.id,
-              tagId: tag.id,
-              autoGenerated: true,
-            },
-          });
-        }
-      }
+  // Import entities (with updated user_id)
+  console.log('\nImporting entities...');
+  for (const entity of entities) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO entities (
+        id, user_id, name, normalized_name, entity_type,
+        occurrence_count, metadata, first_seen_at, last_seen_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamp, $9::timestamp)
+      ON CONFLICT (id) DO NOTHING
+    `,
+      entity.id,
+      adminUser.id,
+      entity.name,
+      entity.normalized_name,
+      entity.entity_type,
+      entity.occurrence_count,
+      entity.metadata,
+      entity.first_seen_at,
+      entity.last_seen_at
+    );
+  }
+  console.log(`✓ Imported ${entities.length} entities`);
 
-      console.log(`✓ Imported: ${bookmark.title}`);
-      imported++;
-    } catch (error) {
-      console.error(`✗ Failed to import: ${bookmark.title}`, error);
+  // Import concepts (with updated user_id)
+  // Need to insert in two passes due to self-referencing foreign key
+  console.log('\nImporting concepts (pass 1 - without parent)...');
+  for (const concept of concepts) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO concepts (
+        id, user_id, name, normalized_name, parent_concept_id,
+        occurrence_count, embedding, created_at
+      )
+      VALUES ($1, $2, $3, $4, NULL, $5, $6::vector, COALESCE($7::timestamp, CURRENT_TIMESTAMP))
+      ON CONFLICT (id) DO NOTHING
+    `,
+      concept.id,
+      adminUser.id,
+      concept.name,
+      concept.normalized_name,
+      concept.occurrence_count,
+      concept.embedding,
+      concept.first_seen_at
+    );
+  }
+  console.log(`✓ Inserted ${concepts.length} concepts`);
+
+  // Pass 2: Update parent relationships
+  console.log('\nImporting concepts (pass 2 - adding parents)...');
+  let updatedCount = 0;
+  for (const concept of concepts) {
+    if (concept.parent_concept_id) {
+      await prisma.$executeRawUnsafe(`
+        UPDATE concepts
+        SET parent_concept_id = $1
+        WHERE id = $2
+      `,
+        concept.parent_concept_id,
+        concept.id
+      );
+      updatedCount++;
     }
   }
+  console.log(`✓ Updated ${updatedCount} concept parent relationships`);
 
-  console.log(`\n📊 Import Summary:`);
-  console.log(`   ✓ Imported: ${imported}`);
-  console.log(`   ⏭  Skipped: ${skipped}`);
-  console.log(`   📚 Total: ${data.bookmarks.length}`);
+  // Import relationships (with updated user_id)
+  console.log('\nImporting relationships...');
+  for (const rel of relationships) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO relationships (
+        id, user_id, source_type, source_id, target_type, target_id,
+        relationship_type, weight, metadata, created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::timestamp)
+      ON CONFLICT (id) DO NOTHING
+    `,
+      rel.id,
+      adminUser.id,
+      rel.source_type,
+      rel.source_id,
+      rel.target_type,
+      rel.target_id,
+      rel.relationship_type,
+      rel.weight,
+      rel.metadata,
+      rel.created_at
+    );
+  }
+  console.log(`✓ Imported ${relationships.length} relationships`);
 
-  await prisma.$disconnect();
+  console.log('\n✓ All data imported successfully!');
+  console.log(`\nTotal imported for ${adminUser.email}:`);
+  console.log(`  - ${bookmarks.length} bookmarks`);
+  console.log(`  - ${tags.length} tags`);
+  console.log(`  - ${entities.length} entities`);
+  console.log(`  - ${concepts.length} concepts`);
+  console.log(`  - ${relationships.length} relationships`);
 }
 
-importBookmarks().catch((error) => {
-  console.error('Import failed:', error);
-  process.exit(1);
-});
+main()
+  .catch((e) => {
+    console.error('Error:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

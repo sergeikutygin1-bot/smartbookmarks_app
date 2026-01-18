@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthHeaders } from '../../auth-helper';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +21,7 @@ export async function GET(
     // Proxy request to backend enrichment service
     const statusResponse = await fetch(`${BACKEND_URL}/enrich/${jobId}`, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await getAuthHeaders(request, { 'Content-Type': 'application/json' }),
     });
 
     if (!statusResponse.ok) {

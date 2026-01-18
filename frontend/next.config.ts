@@ -8,6 +8,16 @@ const nextConfig: NextConfig = {
   experimental: {
     instrumentationHook: false,
   },
+
+  // Proxy API requests to backend
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: 'http://localhost:3002/api/:path*',
+      },
+    ];
+  },
 };
 
 export default nextConfig;

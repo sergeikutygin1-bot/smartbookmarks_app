@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     });
 
     const response = await fetch(backendUrl.toString(), {
-      headers: getAuthHeaders(request),
+      headers: await getAuthHeaders(request),
     });
 
     if (!response.ok) {
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     const response = await fetch(BACKEND_API, {
       method: 'POST',
-      headers: getAuthHeaders(request, { 'Content-Type': 'application/json' }),
+      headers: await getAuthHeaders(request, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
 

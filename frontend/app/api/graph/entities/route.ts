@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     }
 
     const response = await fetch(url, {
-      headers: getAuthHeaders(request),
+      headers: await getAuthHeaders(request),
     });
 
     if (!response.ok) {

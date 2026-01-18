@@ -14,9 +14,19 @@ model User {
   email         String   @unique
   passwordHash  String?  @map("password_hash")
   googleId      String?  @unique @map("google_id")
+  githubId      String?  @unique @map("github_id")
   emailVerified Boolean  @default(false) @map("email_verified")
+  role          String   @default("user") @db.VarChar(20)
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Email verification fields
+  verificationToken          String?   @map("verification_token")
+  verificationTokenExpiresAt DateTime? @map("verification_token_expires_at")
+
+  // Password reset fields
+  resetPasswordToken          String?   @map("reset_password_token")
+  resetPasswordTokenExpiresAt DateTime? @map("reset_password_token_expires_at")
 
   bookmarks     Bookmark[]
   tags          Tag[]
@@ -24,7 +34,10 @@ model User {
   concepts      Concept[]
   relationships Relationship[]
   refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
 
+  @@index([verificationToken])
+  @@index([resetPasswordToken])
   @@map("users")
 }
 
@@ -171,4 +184,23 @@ model RefreshToken {
   @@index([token])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  email     String?
+  eventType String   @map("event_type") @db.VarChar(50)
+  success   Boolean
+  ipAddress String?  @map("ip_address") @db.VarChar(45)
+  userAgent String?  @map("user_agent") @db.VarChar(500)
+  metadata  Json?    @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("audit_logs")
 }

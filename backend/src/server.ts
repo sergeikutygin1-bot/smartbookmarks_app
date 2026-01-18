@@ -10,6 +10,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
+import passport from "./config/passport";
 import { enrichUrl } from "./agents/enrichmentAgent";
 import { logger } from "./services/logger";
 import { enrichmentTracker } from "./services/enrichmentTracker";
@@ -29,8 +31,15 @@ const app = express();
 const PORT = process.env.PORT || 3002;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true, // Allow cookies
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(cookieParser());
 app.use(express.json({ limit: '10mb' })); // Increase limit for vector embeddings
+app.use(passport.initialize());
 
 // Global rate limiting (60 req/min authenticated, 100 req/min unauthenticated)
 app.use(generalRateLimit);

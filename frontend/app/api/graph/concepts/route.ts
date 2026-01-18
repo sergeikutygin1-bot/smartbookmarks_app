@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const limit = searchParams.get('limit') || '100';
 
     const response = await fetch(`${BACKEND_API}?limit=${limit}`, {
-      headers: getAuthHeaders(request),
+      headers: await getAuthHeaders(request),
     });
 
     if (!response.ok) {

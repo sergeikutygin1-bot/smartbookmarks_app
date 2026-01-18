@@ -120,15 +120,18 @@ router.get('/bookmarks/:id/related', async (req: Request, res: Response) => {
  */
 router.get('/entities', async (req: Request, res: Response) => {
   try {
+    console.log('[GraphRoute] GET /entities - Start', { userId: req.user!.id });
     const userId = req.user!.id;
     const { type, limit } = req.query;
 
+    console.log('[GraphRoute] Calling graphService.listEntities...');
     const entities = await graphService.listEntities(
       userId,
       type as string,
       limit ? parseInt(limit as string) : 50
     );
 
+    console.log('[GraphRoute] Entities fetched:', entities.length);
     res.json({ data: entities });
   } catch (error) {
     console.error('Error fetching entities:', error);
@@ -178,14 +181,17 @@ router.get('/entities/:id/bookmarks', async (req: Request, res: Response) => {
  */
 router.get('/concepts', async (req: Request, res: Response) => {
   try {
+    console.log('[GraphRoute] GET /concepts - Start', { userId: req.user!.id });
     const userId = req.user!.id;
     const { limit } = req.query;
 
+    console.log('[GraphRoute] Calling graphService.listConcepts...');
     const concepts = await graphService.listConcepts(
       userId,
       limit ? parseInt(limit as string) : 100
     );
 
+    console.log('[GraphRoute] Concepts fetched:', concepts.length);
     res.json({ data: concepts });
   } catch (error) {
     console.error('Error fetching concepts:', error);

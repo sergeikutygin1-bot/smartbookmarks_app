@@ -8,49 +8,38 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:300
 
 /**
  * Authenticated fetch wrapper with automatic token refresh
- * Adds Authorization header and handles 401 errors by refreshing tokens
+ * Uses httpOnly cookies for authentication (XSS protection)
+ * Falls back to Bearer header for backward compatibility
  */
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const accessToken = getAccessToken();
+  // Try cookie-based auth first (new method)
+  let response = await fetch(url, {
+    ...options,
+    credentials: 'include', // Send cookies automatically
+  });
 
-  // Add Authorization header if we have a token
-  const headers = {
-    ...options.headers,
-    ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
-  };
-
-  // Make the request
-  let response = await fetch(url, { ...options, headers });
-
-  // If 401 Unauthorized and we have a refresh token, try to refresh
-  if (response.status === 401 && getRefreshToken()) {
+  // If 401 Unauthorized, try to refresh
+  if (response.status === 401) {
     console.log('[API] Access token expired, attempting refresh...');
 
     try {
-      // Try to refresh the token
+      // Try to refresh the token (backend will read refreshToken from cookie)
       const refreshResponse = await fetch(`${BACKEND_URL}/api/v1/auth/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: getRefreshToken() }),
+        credentials: 'include',
       });
 
       if (refreshResponse.ok) {
-        const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await refreshResponse.json();
-        setTokens(newAccessToken, newRefreshToken);
-
         console.log('[API] Token refreshed successfully, retrying request');
 
-        // Retry the original request with the new token
-        const newHeaders = {
-          ...options.headers,
-          'Authorization': `Bearer ${newAccessToken}`,
-        };
-
-        response = await fetch(url, { ...options, headers: newHeaders });
+        // Retry the original request (new cookies are now set)
+        response = await fetch(url, {
+          ...options,
+          credentials: 'include',
+        });
       } else {
-        // Refresh failed, clear tokens and redirect to login
+        // Refresh failed, redirect to login
         console.log('[API] Token refresh failed, redirecting to login');
-        clearTokens();
 
         // Redirect to login page
         if (typeof window !== 'undefined') {
@@ -59,7 +48,6 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
       }
     } catch (error) {
       console.error('[API] Error refreshing token:', error);
-      clearTokens();
 
       // Redirect to login page
       if (typeof window !== 'undefined') {
@@ -228,7 +216,7 @@ export const authApi = {
    */
   async register(email: string, password: string, confirmPassword: string): Promise<{
     user: any;
-    tokens: {
+    tokens?: {
       accessToken: string;
       refreshToken: string;
       expiresIn: number;
@@ -238,6 +226,7 @@ export const authApi = {
     const response = await fetch(`${BACKEND_URL}/api/v1/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // Use cookies
       body: JSON.stringify({ email, password, confirmPassword }),
     });
 
@@ -249,16 +238,18 @@ export const authApi = {
    */
   async login(email: string, password: string): Promise<{
     user: any;
-    tokens: {
+    tokens?: {
       accessToken: string;
       refreshToken: string;
       expiresIn: number;
       tokenType: 'Bearer';
     };
   }> {
-    const response = await fetch(`${BACKEND_URL}/api/v1/auth/login`, {
+    // Use Next.js API proxy to ensure cookies are set on correct domain
+    const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // Use cookies
       body: JSON.stringify({ email, password }),
     });
 
@@ -268,16 +259,11 @@ export const authApi = {
   /**
    * Logout (revoke refresh token)
    */
-  async logout(refreshToken: string): Promise<void> {
-    const accessToken = getAccessToken();
-
-    const response = await fetch(`${BACKEND_URL}/api/v1/auth/logout`, {
+  async logout(): Promise<void> {
+    // Use Next.js API proxy to ensure cookies are cleared on correct domain
+    const response = await fetch('/api/auth/logout', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
-      },
-      body: JSON.stringify({ refreshToken }),
+      credentials: 'include', // Use cookies
     });
 
     await handleResponse(response);

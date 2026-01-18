@@ -21,7 +21,7 @@ export async function GET(
     console.log(`[GraphAPI] Fetching metadata from backend: ${url}`);
 
     const response = await fetch(url, {
-      headers: getAuthHeaders(request),
+      headers: await getAuthHeaders(request),
     });
 
     if (!response.ok) {

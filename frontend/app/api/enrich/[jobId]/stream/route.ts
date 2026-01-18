@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { getAuthHeaders } from '../../../auth-helper';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,10 +33,10 @@ export async function GET(
     const backendUrl = `${BACKEND_URL}/enrich/${jobId}/stream`;
     const backendResponse = await fetch(backendUrl, {
       method: 'GET',
-      headers: {
+      headers: await getAuthHeaders(request, {
         'Accept': 'text/event-stream',
         'Cache-Control': 'no-cache',
-      },
+      }),
     });
 
     // If backend returns error (404, 500, etc), forward it

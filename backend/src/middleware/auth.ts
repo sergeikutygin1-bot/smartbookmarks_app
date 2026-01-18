@@ -3,16 +3,23 @@ import { tokenService } from '../services/auth/TokenService';
 
 export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Extract JWT from Authorization header
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        error: 'Unauthorized',
-        message: 'Missing or invalid Authorization header'
-      });
+    let token: string | undefined;
+
+    // Try cookies first (new method)
+    if (req.cookies && req.cookies.accessToken) {
+      token = req.cookies.accessToken;
+    }
+    // Fallback to Authorization header (old method for backward compatibility)
+    else if (req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.substring(7);
     }
 
-    const token = authHeader.substring(7); // Remove "Bearer "
+    if (!token) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Missing authentication token'
+      });
+    }
 
     // Verify JWT
     const decoded = tokenService.verifyAccessToken(token);
@@ -30,10 +37,18 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
       email: decoded.email,
     };
 
+    console.log('[Auth Middleware] Authenticated user:', {
+      userId: decoded.userId,
+      email: decoded.email,
+    });
+
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
-    return res.status(500).json({ error: 'Authentication error' });
+    return res.status(500).json({
+      error: 'Authentication error',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
   }
 };
 
