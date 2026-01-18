@@ -8,8 +8,10 @@ export enum AuditEventType {
   LOGOUT = 'logout',
   REGISTER = 'register',
   EMAIL_VERIFY = 'email_verify',
+  EMAIL_CHANGE = 'email_change',
   PASSWORD_RESET_REQUEST = 'password_reset_request',
   PASSWORD_RESET = 'password_reset',
+  PASSWORD_CHANGE = 'password_change',
   OAUTH_LOGIN = 'oauth_login',
 }
 
