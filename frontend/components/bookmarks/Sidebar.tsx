@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookmarkList } from "./BookmarkList";
 import { FilterBar } from "./FilterBar";
-import { Search, Plus } from "lucide-react";
+import { Search, Plus, User } from "lucide-react";
 import { useFilterStore } from "@/store/filterStore";
 import { useCreateBookmark } from "@/hooks/useBookmarks";
 import { useBookmarksStore } from "@/store/bookmarksStore";
@@ -44,15 +45,27 @@ export function Sidebar() {
           <h1 className="text-xl font-display font-bold text-sidebar-foreground">
             Bookmarks
           </h1>
-          <Button
-            size="sm"
-            onClick={handleCreateBookmark}
-            disabled={createMutation.isPending}
-            className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
-            variant="ghost"
-          >
-            <Plus className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Link href="/profile">
+              <Button
+                size="sm"
+                className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
+                variant="ghost"
+                title="Profile"
+              >
+                <User className="h-5 w-5" />
+              </Button>
+            </Link>
+            <Button
+              size="sm"
+              onClick={handleCreateBookmark}
+              disabled={createMutation.isPending}
+              className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
+              variant="ghost"
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
 
         {/* Search */}

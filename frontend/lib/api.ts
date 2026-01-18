@@ -585,3 +585,170 @@ export const bookmarksApi = {
     return (json.data || []).map(transformBookmark);
   },
 };
+
+/**
+ * API client for user profile
+ */
+export const profileApi = {
+  /**
+   * Get current user profile
+   */
+  async getProfile(): Promise<any> {
+    const response = await authenticatedFetch(`${BACKEND_URL}/api/v1/profile`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const json = await handleResponse(response);
+    return json.user;
+  },
+
+  /**
+   * Update email
+   */
+  async updateEmail(newEmail: string): Promise<any> {
+    const response = await authenticatedFetch(`${BACKEND_URL}/api/v1/profile/email`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newEmail }),
+    });
+
+    const json = await handleResponse(response);
+    return json.user;
+  },
+
+  /**
+   * Change password
+   */
+  async changePassword(data: {
+    currentPassword: string;
+    newPassword: string;
+    confirmPassword: string;
+  }): Promise<void> {
+    const response = await authenticatedFetch(`${BACKEND_URL}/api/v1/profile/password`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    await handleResponse(response);
+  },
+
+  /**
+   * Get analytics summary (counts)
+   */
+  async getAnalyticsSummary(): Promise<{
+    bookmarks: number;
+    entities: number;
+    concepts: number;
+    relationships: number;
+  }> {
+    const response = await authenticatedFetch(`${BACKEND_URL}/api/v1/profile/analytics/summary`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    return handleResponse(response);
+  },
+
+  /**
+   * Get bookmark trend over time
+   */
+  async getBookmarkTrend(days: number = 30): Promise<{
+    trend: Array<{ date: string; count: number }>;
+  }> {
+    const response = await authenticatedFetch(
+      `${BACKEND_URL}/api/v1/profile/analytics/bookmarks/trend?days=${days}`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    return handleResponse(response);
+  },
+
+  /**
+   * Get top entities by occurrence count
+   */
+  async getTopEntities(limit: number = 10): Promise<{
+    entities: Array<{
+      id: string;
+      name: string;
+      entityType: string;
+      occurrenceCount: number;
+    }>;
+  }> {
+    const response = await authenticatedFetch(
+      `${BACKEND_URL}/api/v1/profile/analytics/entities/top?limit=${limit}`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    return handleResponse(response);
+  },
+
+  /**
+   * Get top concepts by occurrence count
+   */
+  async getTopConcepts(limit: number = 10): Promise<{
+    concepts: Array<{
+      id: string;
+      name: string;
+      occurrenceCount: number;
+    }>;
+  }> {
+    const response = await authenticatedFetch(
+      `${BACKEND_URL}/api/v1/profile/analytics/concepts/top?limit=${limit}`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    return handleResponse(response);
+  },
+
+  /**
+   * Get content type distribution
+   */
+  async getContentTypeDistribution(): Promise<{
+    distribution: Array<{ type: string; count: number }>;
+  }> {
+    const response = await authenticatedFetch(
+      `${BACKEND_URL}/api/v1/profile/analytics/content-types`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    return handleResponse(response);
+  },
+
+  /**
+   * Get recent activity (recent bookmarks)
+   */
+  async getRecentActivity(limit: number = 10): Promise<{
+    bookmarks: Array<{
+      id: string;
+      title: string;
+      url: string;
+      domain: string;
+      contentType: string;
+      createdAt: string;
+    }>;
+  }> {
+    const response = await authenticatedFetch(
+      `${BACKEND_URL}/api/v1/profile/analytics/activity/recent?limit=${limit}`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    return handleResponse(response);
+  },
+};
