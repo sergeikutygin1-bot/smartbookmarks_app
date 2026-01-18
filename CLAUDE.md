@@ -8,6 +8,20 @@ Smart Bookmark is an AI-powered universal content capture and organization appli
 
 **Current Status:** Phase 4 complete. Core features implemented including enrichment pipeline, knowledge graph visualization, AI agents, and production-ready infrastructure. All services run in Docker containers.
 
+## ⚠️ CRITICAL WARNINGS - READ FIRST
+
+**Before making changes to authentication, routing, or Docker config, read [FIXES_2026-01-19.md](FIXES_2026-01-19.md) for detailed explanations of common issues and their solutions.**
+
+### Common Pitfalls to Avoid
+
+1. **NEVER add rewrite rules to `next.config.ts`** - All `/api/*` requests must go through Next.js API routes for proper cookie forwarding
+2. **NEVER manually remove Docker containers** - Always use `docker-compose down/up` instead of `docker rm`
+3. **Admin users need database role** - After creating admin user, manually set `role = 'admin'` in database
+4. **Config changes require rebuild** - `next.config.ts` is not volume-mounted; run `docker-compose build frontend` after changes
+5. **Schema sync after git operations** - Run `npx prisma db push` after git reset/checkout to sync database
+
+See [FIXES_2026-01-19.md](FIXES_2026-01-19.md) for full details and emergency reset procedures.
+
 ## Architecture
 
 ### Three-Tier System
@@ -512,6 +526,7 @@ docker exec smartbookmarks_backend npx tsx scripts/create-synthetic-clusters.ts
 
 ## References
 
+- **[FIXES_2026-01-19.md](FIXES_2026-01-19.md)** - ⚠️ Critical fixes and prevention guide (READ THIS FIRST)
 - **[PHASE_4_SUMMARY.md](PHASE_4_SUMMARY.md)** - Phase 4 completion report with performance benchmarks
 - **[docs/APP_PRD.MD](docs/APP_PRD.MD)** - Original product requirements
 - **[docs/Backend_documentation.MD](docs/Backend_documentation.MD)** - Backend architecture details
