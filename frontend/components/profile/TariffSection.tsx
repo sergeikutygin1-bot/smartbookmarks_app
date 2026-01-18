@@ -12,34 +12,28 @@ import {
 export default function TariffSection() {
   return (
     <div className="max-w-2xl">
-      <Card className="p-8 bg-white dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#2A2A2A] shadow-sm">
+      <Card className="p-8 bg-card border border-border shadow-sm">
         <div className="flex items-start justify-between mb-6">
           <div>
-            <h2
-              className="text-3xl font-semibold mb-2"
-              style={{ fontFamily: 'Crimson Pro, serif', letterSpacing: '-0.02em' }}
-            >
+            <h2 className="text-3xl font-serif font-semibold mb-2 tracking-tight">
               Free Plan
             </h2>
-            <p className="text-[#6B6B6B] dark:text-[#A3A3A3]">
+            <p className="text-muted-foreground">
               Current subscription
             </p>
           </div>
           <div className="text-right">
-            <div
-              className="text-4xl font-semibold"
-              style={{ fontFamily: 'JetBrains Mono, monospace' }}
-            >
+            <div className="text-4xl font-semibold" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
               $0
             </div>
-            <div className="text-sm text-[#6B6B6B] dark:text-[#A3A3A3]">
+            <div className="text-sm text-muted-foreground">
               per month
             </div>
           </div>
         </div>
 
-        <div className="border-t border-[#E5E5E5] dark:border-[#2A2A2A] pt-6 mb-6">
-          <h3 className="text-sm uppercase tracking-wide text-[#6B6B6B] dark:text-[#A3A3A3] font-medium mb-3">
+        <div className="border-t border-border pt-6 mb-6">
+          <h3 className="text-sm uppercase tracking-wide text-muted-foreground font-medium mb-3">
             Features
           </h3>
           <ul className="space-y-2">
@@ -52,7 +46,7 @@ export default function TariffSection() {
             ].map((feature) => (
               <li key={feature} className="flex items-center gap-2">
                 <svg
-                  className="w-5 h-5 text-[#D97706] dark:text-[#FBBF24]"
+                  className="w-5 h-5 text-primary"
                   fill="none"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -62,7 +56,7 @@ export default function TariffSection() {
                 >
                   <path d="M5 13l4 4L19 7" />
                 </svg>
-                <span className="text-[#1A1A1A] dark:text-[#F5F5F5]">
+                <span className="text-foreground">
                   {feature}
                 </span>
               </li>
@@ -76,7 +70,7 @@ export default function TariffSection() {
               <div>
                 <Button
                   disabled
-                  className="w-full bg-[#D97706] hover:bg-[#B45309] text-white font-medium uppercase tracking-wide text-sm"
+                  className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium uppercase tracking-wide text-sm"
                 >
                   Upgrade Plan
                 </Button>

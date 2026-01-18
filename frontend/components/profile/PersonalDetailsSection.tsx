@@ -58,23 +58,20 @@ export default function PersonalDetailsSection({ user }: PersonalDetailsSectionP
   return (
     <div className="max-w-2xl space-y-6">
       {/* Account Information */}
-      <Card className="p-8 bg-white dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#2A2A2A] shadow-sm">
-        <h2
-          className="text-2xl font-semibold mb-6"
-          style={{ fontFamily: 'Crimson Pro, serif', letterSpacing: '-0.02em' }}
-        >
+      <Card className="p-8 bg-card border border-border shadow-sm">
+        <h2 className="text-2xl font-serif font-semibold mb-6 tracking-tight">
           Account Information
         </h2>
 
         <div className="space-y-4">
           {/* Email */}
           <div>
-            <Label className="text-sm uppercase tracking-wide text-[#6B6B6B] dark:text-[#A3A3A3] font-medium">
+            <Label className="text-sm uppercase tracking-wide text-muted-foreground font-medium">
               Email
             </Label>
             {!isEditingEmail ? (
               <div className="flex items-center justify-between mt-2">
-                <p className="text-[#1A1A1A] dark:text-[#F5F5F5]">{user?.email}</p>
+                <p className="text-foreground">{user?.email}</p>
                 <Button
                   variant="outline"
                   size="sm"
@@ -94,14 +91,14 @@ export default function PersonalDetailsSection({ user }: PersonalDetailsSectionP
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
                   placeholder="new.email@example.com"
-                  className="bg-white dark:bg-[#1A1A1A] border-[#E5E5E5] dark:border-[#2A2A2A]"
+                  className="bg-card border-border"
                 />
                 <div className="flex gap-2">
                   <Button
                     type="submit"
                     size="sm"
                     disabled={updateEmailMutation.isPending}
-                    className="bg-[#D97706] hover:bg-[#B45309] text-white"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
                   >
                     {updateEmailMutation.isPending ? 'Saving...' : 'Save'}
                   </Button>
@@ -123,10 +120,10 @@ export default function PersonalDetailsSection({ user }: PersonalDetailsSectionP
 
           {/* Member Since */}
           <div>
-            <Label className="text-sm uppercase tracking-wide text-[#6B6B6B] dark:text-[#A3A3A3] font-medium">
+            <Label className="text-sm uppercase tracking-wide text-muted-foreground font-medium">
               Member Since
             </Label>
-            <p className="text-[#1A1A1A] dark:text-[#F5F5F5] mt-2">
+            <p className="text-foreground mt-2">
               {user?.createdAt ? format(new Date(user.createdAt), 'MMMM d, yyyy') : '-'}
             </p>
           </div>
@@ -134,11 +131,8 @@ export default function PersonalDetailsSection({ user }: PersonalDetailsSectionP
       </Card>
 
       {/* Change Password */}
-      <Card className="p-8 bg-white dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#2A2A2A] shadow-sm">
-        <h2
-          className="text-2xl font-semibold mb-6"
-          style={{ fontFamily: 'Crimson Pro, serif', letterSpacing: '-0.02em' }}
-        >
+      <Card className="p-8 bg-card border border-border shadow-sm">
+        <h2 className="text-2xl font-serif font-semibold mb-6 tracking-tight">
           Password
         </h2>
 
@@ -159,7 +153,7 @@ export default function PersonalDetailsSection({ user }: PersonalDetailsSectionP
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 required
-                className="mt-2 bg-white dark:bg-[#1A1A1A] border-[#E5E5E5] dark:border-[#2A2A2A]"
+                className="mt-2 bg-card border-border"
               />
             </div>
 
@@ -171,7 +165,7 @@ export default function PersonalDetailsSection({ user }: PersonalDetailsSectionP
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
-                className="mt-2 bg-white dark:bg-[#1A1A1A] border-[#E5E5E5] dark:border-[#2A2A2A]"
+                className="mt-2 bg-card border-border"
               />
               {newPassword && !passwordValidation.valid && (
                 <div className="mt-2 text-xs text-amber-600 dark:text-amber-400">
@@ -193,7 +187,7 @@ export default function PersonalDetailsSection({ user }: PersonalDetailsSectionP
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                className="mt-2 bg-white dark:bg-[#1A1A1A] border-[#E5E5E5] dark:border-[#2A2A2A]"
+                className="mt-2 bg-card border-border"
               />
               {confirmPassword && newPassword !== confirmPassword && (
                 <p className="mt-2 text-xs text-red-600 dark:text-red-400">
@@ -210,7 +204,7 @@ export default function PersonalDetailsSection({ user }: PersonalDetailsSectionP
                   !passwordValidation.valid ||
                   newPassword !== confirmPassword
                 }
-                className="bg-[#D97706] hover:bg-[#B45309] text-white"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
               >
                 {changePasswordMutation.isPending ? 'Changing...' : 'Change Password'}
               </Button>

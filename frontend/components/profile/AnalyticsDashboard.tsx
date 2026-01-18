@@ -75,11 +75,8 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* Bookmark Trend Chart */}
-      <Card className="p-6 bg-white dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#2A2A2A] shadow-sm">
-        <h3
-          className="text-2xl font-semibold mb-6"
-          style={{ fontFamily: 'Crimson Pro, serif', letterSpacing: '-0.02em' }}
-        >
+      <Card className="p-6 bg-card border border-border shadow-sm">
+        <h3 className="text-2xl font-serif font-semibold mb-6 tracking-tight">
           Bookmarks Over Time
         </h3>
         {trendLoading ? (
@@ -95,7 +92,7 @@ export default function AnalyticsDashboard() {
               <XAxis
                 dataKey="date"
                 tickFormatter={(value) => format(new Date(value), 'MMM d')}
-                stroke="#6B6B6B"
+                stroke="hsl(var(--muted-foreground))"
                 style={{
                   fontSize: '11px',
                   fontFamily: 'DM Sans',
@@ -104,7 +101,7 @@ export default function AnalyticsDashboard() {
                 }}
               />
               <YAxis
-                stroke="#6B6B6B"
+                stroke="hsl(var(--muted-foreground))"
                 style={{
                   fontSize: '11px',
                   fontFamily: 'JetBrains Mono, monospace',
@@ -112,8 +109,8 @@ export default function AnalyticsDashboard() {
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #E5E5E5',
+                  backgroundColor: 'hsl(var(--card))',
+                  border: '1px solid hsl(var(--border))',
                   borderRadius: '8px',
                   padding: '12px',
                 }}
@@ -134,11 +131,8 @@ export default function AnalyticsDashboard() {
       {/* Top Entities and Concepts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Entities */}
-        <Card className="p-6 bg-white dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#2A2A2A] shadow-sm">
-          <h3
-            className="text-2xl font-semibold mb-6"
-            style={{ fontFamily: 'Crimson Pro, serif', letterSpacing: '-0.02em' }}
-          >
+        <Card className="p-6 bg-card border border-border shadow-sm">
+          <h3 className="text-2xl font-serif font-semibold mb-6 tracking-tight">
             Top Entities
           </h3>
           {entitiesLoading ? (
@@ -157,20 +151,20 @@ export default function AnalyticsDashboard() {
                 />
                 <XAxis
                   type="number"
-                  stroke="#6B6B6B"
+                  stroke="hsl(var(--muted-foreground))"
                   style={{ fontSize: '11px', fontFamily: 'JetBrains Mono, monospace' }}
                 />
                 <YAxis
                   type="category"
                   dataKey="name"
-                  stroke="#6B6B6B"
+                  stroke="hsl(var(--muted-foreground))"
                   width={100}
                   style={{ fontSize: '11px' }}
                 />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #E5E5E5',
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
                     borderRadius: '8px',
                     padding: '12px',
                   }}
@@ -182,11 +176,8 @@ export default function AnalyticsDashboard() {
         </Card>
 
         {/* Top Concepts */}
-        <Card className="p-6 bg-white dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#2A2A2A] shadow-sm">
-          <h3
-            className="text-2xl font-semibold mb-6"
-            style={{ fontFamily: 'Crimson Pro, serif', letterSpacing: '-0.02em' }}
-          >
+        <Card className="p-6 bg-card border border-border shadow-sm">
+          <h3 className="text-2xl font-serif font-semibold mb-6 tracking-tight">
             Top Concepts
           </h3>
           {conceptsLoading ? (
@@ -205,20 +196,20 @@ export default function AnalyticsDashboard() {
                 />
                 <XAxis
                   type="number"
-                  stroke="#6B6B6B"
+                  stroke="hsl(var(--muted-foreground))"
                   style={{ fontSize: '11px', fontFamily: 'JetBrains Mono, monospace' }}
                 />
                 <YAxis
                   type="category"
                   dataKey="name"
-                  stroke="#6B6B6B"
+                  stroke="hsl(var(--muted-foreground))"
                   width={100}
                   style={{ fontSize: '11px' }}
                 />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #E5E5E5',
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
                     borderRadius: '8px',
                     padding: '12px',
                   }}
@@ -233,11 +224,8 @@ export default function AnalyticsDashboard() {
       {/* Content Type Distribution and Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Content Type Distribution */}
-        <Card className="p-6 bg-white dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#2A2A2A] shadow-sm">
-          <h3
-            className="text-2xl font-semibold mb-6"
-            style={{ fontFamily: 'Crimson Pro, serif', letterSpacing: '-0.02em' }}
-          >
+        <Card className="p-6 bg-card border border-border shadow-sm">
+          <h3 className="text-2xl font-serif font-semibold mb-6 tracking-tight">
             Content Types
           </h3>
           {contentLoading ? (
@@ -260,8 +248,8 @@ export default function AnalyticsDashboard() {
                 </Pie>
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #E5E5E5',
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
                     borderRadius: '8px',
                     padding: '12px',
                   }}
@@ -272,11 +260,8 @@ export default function AnalyticsDashboard() {
         </Card>
 
         {/* Recent Activity */}
-        <Card className="p-6 bg-white dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#2A2A2A] shadow-sm">
-          <h3
-            className="text-2xl font-semibold mb-6"
-            style={{ fontFamily: 'Crimson Pro, serif', letterSpacing: '-0.02em' }}
-          >
+        <Card className="p-6 bg-card border border-border shadow-sm">
+          <h3 className="text-2xl font-serif font-semibold mb-6 tracking-tight">
             Recent Activity
           </h3>
           {activityLoading ? (
@@ -291,18 +276,18 @@ export default function AnalyticsDashboard() {
                 <Link
                   key={bookmark.id}
                   href={`/bookmarks/${bookmark.id}`}
-                  className="block p-3 rounded-lg border border-[#E5E5E5] dark:border-[#2A2A2A] hover:border-[#D97706] dark:hover:border-[#FBBF24] transition-colors"
+                  className="block p-3 rounded-lg border border-border hover:border-primary transition-colors"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-[#1A1A1A] dark:text-[#F5F5F5] truncate">
+                      <p className="font-medium text-foreground truncate">
                         {bookmark.title}
                       </p>
-                      <p className="text-sm text-[#6B6B6B] dark:text-[#A3A3A3] truncate">
+                      <p className="text-sm text-muted-foreground truncate">
                         {bookmark.domain}
                       </p>
                     </div>
-                    <div className="text-xs text-[#6B6B6B] dark:text-[#A3A3A3] whitespace-nowrap">
+                    <div className="text-xs text-muted-foreground whitespace-nowrap">
                       {format(new Date(bookmark.createdAt), 'MMM d, yyyy')}
                     </div>
                   </div>
@@ -327,17 +312,14 @@ function SummaryCard({
   trend: string;
 }) {
   return (
-    <Card className="p-6 bg-white dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#2A2A2A] shadow-sm hover:shadow-md hover:border-[#D97706] dark:hover:border-[#FBBF24] transition-all hover:-translate-y-0.5">
-      <div
-        className="text-4xl font-semibold mb-2"
-        style={{ fontFamily: 'JetBrains Mono, monospace', lineHeight: 1 }}
-      >
+    <Card className="p-6 bg-card border border-border shadow-sm hover:shadow-md hover:border-primary transition-all hover:-translate-y-0.5">
+      <div className="text-4xl font-semibold mb-2 leading-none" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
         {value.toLocaleString()}
       </div>
-      <div className="text-sm uppercase tracking-wide text-[#6B6B6B] dark:text-[#A3A3A3] font-medium mb-1">
+      <div className="text-sm uppercase tracking-wide text-muted-foreground font-medium mb-1">
         {label}
       </div>
-      <div className="text-xs text-[#D97706] dark:text-[#FBBF24] font-medium">{trend}</div>
+      <div className="text-xs text-primary font-medium">{trend}</div>
     </Card>
   );
 }

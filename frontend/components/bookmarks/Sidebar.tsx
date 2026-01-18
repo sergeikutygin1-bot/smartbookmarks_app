@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookmarkList } from "./BookmarkList";
@@ -10,12 +9,14 @@ import { Search, Plus, User } from "lucide-react";
 import { useFilterStore } from "@/store/filterStore";
 import { useCreateBookmark } from "@/hooks/useBookmarks";
 import { useBookmarksStore } from "@/store/bookmarksStore";
+import { useProfilePanelStore } from "@/store/profilePanelStore";
 
 export function Sidebar() {
   const { searchQuery, setSearchQuery } = useFilterStore();
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const createMutation = useCreateBookmark();
   const { selectBookmark } = useBookmarksStore();
+  const { open: openProfile } = useProfilePanelStore();
 
   // Debounce search query updates (500ms)
   useEffect(() => {
@@ -46,16 +47,15 @@ export function Sidebar() {
             Bookmarks
           </h1>
           <div className="flex items-center gap-2">
-            <Link href="/profile">
-              <Button
-                size="sm"
-                className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
-                variant="ghost"
-                title="Profile"
-              >
-                <User className="h-5 w-5" />
-              </Button>
-            </Link>
+            <Button
+              size="sm"
+              onClick={openProfile}
+              className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
+              variant="ghost"
+              title="Profile Settings"
+            >
+              <User className="h-5 w-5" />
+            </Button>
             <Button
               size="sm"
               onClick={handleCreateBookmark}
