@@ -5,16 +5,18 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookmarkList } from "./BookmarkList";
 import { FilterBar } from "./FilterBar";
-import { Search, Plus } from "lucide-react";
+import { Search, Plus, User } from "lucide-react";
 import { useFilterStore } from "@/store/filterStore";
 import { useCreateBookmark } from "@/hooks/useBookmarks";
 import { useBookmarksStore } from "@/store/bookmarksStore";
+import { useProfilePanelStore } from "@/store/profilePanelStore";
 
 export function Sidebar() {
   const { searchQuery, setSearchQuery } = useFilterStore();
   const [localQuery, setLocalQuery] = useState(searchQuery);
   const createMutation = useCreateBookmark();
   const { selectBookmark } = useBookmarksStore();
+  const { open: openProfile } = useProfilePanelStore();
 
   // Debounce search query updates (500ms)
   useEffect(() => {
@@ -44,15 +46,26 @@ export function Sidebar() {
           <h1 className="text-xl font-display font-bold text-sidebar-foreground">
             Bookmarks
           </h1>
-          <Button
-            size="sm"
-            onClick={handleCreateBookmark}
-            disabled={createMutation.isPending}
-            className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
-            variant="ghost"
-          >
-            <Plus className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={openProfile}
+              className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
+              variant="ghost"
+              title="Profile Settings"
+            >
+              <User className="h-5 w-5" />
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleCreateBookmark}
+              disabled={createMutation.isPending}
+              className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
+              variant="ghost"
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
 
         {/* Search */}

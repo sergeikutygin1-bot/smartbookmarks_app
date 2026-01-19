@@ -9,15 +9,9 @@ const nextConfig: NextConfig = {
     instrumentationHook: false,
   },
 
-  // Proxy API requests to backend
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://localhost:3002/api/:path*',
-      },
-    ];
-  },
+  // Note: We use Next.js API routes for proxying to backend
+  // They handle authentication cookie forwarding properly
+  // No rewrites needed - all /api/* routes are handled by Next.js API routes
 };
 
 export default nextConfig;

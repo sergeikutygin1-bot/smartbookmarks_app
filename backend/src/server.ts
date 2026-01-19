@@ -21,6 +21,7 @@ import bookmarksRoutes from "./routes/bookmarks";
 import enrichRoutes from "./routes/enrich";
 import graphRoutes from "./routes/graph";
 import authRoutes from "./routes/auth";
+import profileRoutes from "./routes/profile";
 import { enrichmentQueue } from "./queues/enrichmentQueue";
 import { authMiddleware } from "./middleware/auth";
 import { adminMiddleware } from "./middleware/adminAuth";
@@ -73,6 +74,9 @@ app.get("/health", (req, res) => {
 
 // Authentication routes (with auth rate limiting)
 app.use("/api/v1/auth", authRateLimit, authRoutes);
+
+// Profile routes (protected)
+app.use("/api/v1/profile", profileRoutes);
 
 // Admin dashboard routes (protected)
 app.use("/admin", authMiddleware, adminMiddleware, adminRoutes);

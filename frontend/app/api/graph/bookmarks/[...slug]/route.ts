@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthHeaders } from '../../../../auth-helper';
+import { getAuthHeaders } from '../../../auth-helper';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,14 +9,24 @@ const BACKEND_API = process.env.BACKEND_URL
 
 /**
  * GET /api/graph/bookmarks/:id/related
- * Proxy to backend graph API to get related bookmarks, concepts, and entities
+ * Catch-all route to handle bookmark graph endpoints
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ slug: string[] }> }
 ) {
   try {
-    const { id } = await params;
+    const { slug } = await context.params;
+    
+    // Expected: ['id', 'related']
+    if (slug.length !== 2 || slug[1] !== 'related') {
+      return NextResponse.json(
+        { error: 'Invalid endpoint. Use /api/graph/bookmarks/:id/related' },
+        { status: 404 }
+      );
+    }
+
+    const id = slug[0];
     const url = `${BACKEND_API}/${id}/related`;
     console.log(`[GraphAPI] Fetching metadata from backend: ${url}`);
 
@@ -44,7 +54,7 @@ export async function GET(
 
     return NextResponse.json(data);
   } catch (error) {
-    console.error('GET /api/graph/bookmarks/:id/related error:', error);
+    console.error('GET /api/graph/bookmarks/[...slug] error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch bookmark metadata' },
       { status: 500 }
