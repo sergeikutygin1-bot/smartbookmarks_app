@@ -12,6 +12,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useUpdateEmail, useChangePassword } from '@/hooks/useProfile';
 import { usePasswordValidation } from '@/hooks/usePasswordValidation';
 import {
@@ -26,14 +27,16 @@ import Link from 'next/link';
 import {
   LineChart,
   Line,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { InsightsFeed } from './InsightsFeed';
+import { TopItemsList } from './TopItemsList';
+import { useBookmarksStore } from '@/store/bookmarksStore';
+import { useProfilePanelStore } from '@/store/profilePanelStore';
 
 interface UnifiedProfileViewProps {
   user: any;
@@ -47,6 +50,10 @@ export default function UnifiedProfileView({ user }: UnifiedProfileViewProps) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  const router = useRouter();
+  const { selectBookmark } = useBookmarksStore();
+  const { close } = useProfilePanelStore();
 
   const updateEmailMutation = useUpdateEmail();
   const changePasswordMutation = useChangePassword();
@@ -80,6 +87,12 @@ export default function UnifiedProfileView({ user }: UnifiedProfileViewProps) {
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
+  };
+
+  const handleBookmarkClick = (bookmarkId: string) => {
+    selectBookmark(bookmarkId);
+    close();
+    router.push('/');
   };
 
   return (
@@ -331,6 +344,9 @@ export default function UnifiedProfileView({ user }: UnifiedProfileViewProps) {
             </Tooltip>
           </TooltipProvider>
         </Card>
+
+        {/* Insights Feed */}
+        <InsightsFeed />
       </div>
 
       {/* Right Main Area - Analytics Dashboard (70%) */}
@@ -420,97 +436,21 @@ export default function UnifiedProfileView({ user }: UnifiedProfileViewProps) {
 
         {/* Top Entities and Concepts */}
         <div className="grid grid-cols-2 gap-6">
-          {/* Top Entities */}
-          <Card className="p-6 bg-card border border-border shadow-sm">
-            <h3 className="text-lg font-serif font-semibold mb-4 tracking-tight">
-              Top Entities
-            </h3>
-            {entitiesLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart
-                  data={entitiesData?.entities || []}
-                  layout="vertical"
-                  margin={{ left: 20 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="hsl(var(--border))"
-                    opacity={0.3}
-                  />
-                  <XAxis
-                    type="number"
-                    stroke="hsl(var(--muted-foreground))"
-                    style={{ fontSize: '11px', fontFamily: 'JetBrains Mono, monospace' }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    stroke="hsl(var(--muted-foreground))"
-                    width={100}
-                    style={{ fontSize: '11px' }}
-                  />
-                  <RechartsTooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Bar dataKey="occurrenceCount" fill="#D97706" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </Card>
+          <TopItemsList
+            title="Top Entities"
+            items={entitiesData?.entities || []}
+            isLoading={entitiesLoading}
+            accentColor="#D97706"
+            linkBase="/graph"
+          />
 
-          {/* Top Concepts */}
-          <Card className="p-6 bg-card border border-border shadow-sm">
-            <h3 className="text-lg font-serif font-semibold mb-4 tracking-tight">
-              Top Concepts
-            </h3>
-            {conceptsLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart
-                  data={conceptsData?.concepts || []}
-                  layout="vertical"
-                  margin={{ left: 20 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="hsl(var(--border))"
-                    opacity={0.3}
-                  />
-                  <XAxis
-                    type="number"
-                    stroke="hsl(var(--muted-foreground))"
-                    style={{ fontSize: '11px', fontFamily: 'JetBrains Mono, monospace' }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    stroke="hsl(var(--muted-foreground))"
-                    width={100}
-                    style={{ fontSize: '11px' }}
-                  />
-                  <RechartsTooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                    }}
-                  />
-                  <Bar dataKey="occurrenceCount" fill="#059669" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </Card>
+          <TopItemsList
+            title="Top Concepts"
+            items={conceptsData?.concepts || []}
+            isLoading={conceptsLoading}
+            accentColor="#059669"
+            linkBase="/graph"
+          />
         </div>
 
         {/* Recent Activity */}
@@ -527,10 +467,10 @@ export default function UnifiedProfileView({ user }: UnifiedProfileViewProps) {
           ) : (
             <div className="space-y-2">
               {activityData?.bookmarks.map((bookmark) => (
-                <Link
+                <div
                   key={bookmark.id}
-                  href={`/bookmarks/${bookmark.id}`}
-                  className="block p-3 rounded-lg border border-border hover:border-primary transition-colors"
+                  onClick={() => handleBookmarkClick(bookmark.id)}
+                  className="block p-3 rounded-lg border border-border hover:border-primary transition-colors cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
@@ -545,7 +485,7 @@ export default function UnifiedProfileView({ user }: UnifiedProfileViewProps) {
                       {format(new Date(bookmark.createdAt), 'MMM d, yyyy')}
                     </div>
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
           )}

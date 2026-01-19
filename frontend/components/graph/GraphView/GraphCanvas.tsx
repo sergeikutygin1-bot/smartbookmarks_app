@@ -324,6 +324,7 @@ function GraphCanvasContent() {
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null);
     clearHighlights();
+    selectBookmark(null); // Clear sidebar bookmark selection too
 
     // Clear React Flow's node selection
     setNodes((nds) =>
@@ -332,7 +333,7 @@ function GraphCanvasContent() {
         selected: false,
       }))
     );
-  }, [setSelectedNode, clearHighlights, setNodes]);
+  }, [setSelectedNode, clearHighlights, selectBookmark, setNodes]);
 
   // Track position before drag starts
   const handleNodeDragStart = useCallback(
