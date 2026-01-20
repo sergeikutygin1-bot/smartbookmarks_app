@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data_v2:/var/lib/postgresql/data
+      - smart_bookmarks_v2_postgres_data:/var/lib/postgresql/data
       - ./postgres.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
@@ -155,7 +155,12 @@ services:
       - smartbookmarks
 
 volumes:
-  postgres_data_v2:
+  # ⚠️ CRITICAL: External volume prevents 'docker-compose down -v' from deleting data
+  # Volume contains all user data: bookmarks, users, entities, concepts, relationships
+  # To backup: ./scripts/backup-database.sh
+  # To restore: ./scripts/restore-backup.sh <backup-file>
+  smart_bookmarks_v2_postgres_data:
+    external: true  # NEVER REMOVE THIS LINE - Protects data from deletion
   redis_data:
   backend_data:
 
