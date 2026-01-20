@@ -3,6 +3,7 @@ import { bookmarkRepository, invalidateBookmarkCaches } from '../repositories/bo
 import { invalidateSearchCaches } from './search';
 import { authMiddleware } from '../middleware/auth';
 import { graphCache } from '../services/graphCache';
+import { sanitizeUrl, sanitizeText, sanitizeHtml, sanitizeTags } from '../utils/sanitize';
 
 const router = express.Router();
 
@@ -73,7 +74,7 @@ router.post('/', async (req: Request, res: Response) => {
 
   try {
     const userId = req.user!.id;
-    const { url, title } = req.body;
+    const { url, title, notes, tags } = req.body;
 
     // Validate request (allow empty URL for new bookmarks)
     if (url === undefined) {
@@ -84,12 +85,23 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    console.log('✅ Creating bookmark with url:', url);
-    const bookmark = await bookmarkRepository.create({
+    // Sanitize inputs to prevent XSS
+    const sanitizedData: any = {
       userId,
-      url,
-      title,
-    });
+      url: url ? sanitizeUrl(url) : '',
+      title: title ? sanitizeText(title) : undefined,
+    };
+
+    // Add optional fields if present
+    if (notes) {
+      sanitizedData.notes = sanitizeHtml(notes);
+    }
+    if (tags && Array.isArray(tags)) {
+      sanitizedData.tags = sanitizeTags(tags);
+    }
+
+    console.log('✅ Creating bookmark with url:', sanitizedData.url);
+    const bookmark = await bookmarkRepository.create(sanitizedData);
     console.log('✅ Bookmark created successfully:', bookmark.id);
 
     // Invalidate caches
@@ -122,7 +134,31 @@ router.patch('/:id', async (req: Request, res: Response) => {
     delete updates.createdAt;
     delete updates.userId;
 
-    const bookmark = await bookmarkRepository.update(id, userId, updates);
+    // Sanitize inputs to prevent XSS
+    const sanitizedUpdates: any = {};
+
+    if (updates.url !== undefined) {
+      sanitizedUpdates.url = updates.url ? sanitizeUrl(updates.url) : '';
+    }
+    if (updates.title !== undefined) {
+      sanitizedUpdates.title = updates.title ? sanitizeText(updates.title) : null;
+    }
+    if (updates.notes !== undefined) {
+      sanitizedUpdates.notes = updates.notes ? sanitizeHtml(updates.notes) : null;
+    }
+    if (updates.tags !== undefined && Array.isArray(updates.tags)) {
+      sanitizedUpdates.tags = sanitizeTags(updates.tags);
+    }
+
+    // Pass through other allowed fields without sanitization
+    const allowedFields = ['status', 'contentType', 'enrichmentStatus'];
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        sanitizedUpdates[field] = updates[field];
+      }
+    }
+
+    const bookmark = await bookmarkRepository.update(id, userId, sanitizedUpdates);
 
     if (!bookmark) {
       return res.status(404).json({

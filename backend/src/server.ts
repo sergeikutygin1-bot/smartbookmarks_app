@@ -27,6 +27,8 @@ import { authMiddleware } from "./middleware/auth";
 import { adminMiddleware } from "./middleware/adminAuth";
 import { enrichmentRateLimit, generalRateLimit, searchRateLimit, authRateLimit } from "./middleware/rateLimiter";
 import { checkDailyBudget } from "./middleware/costControl";
+import { configureSecurityHeaders } from "./middleware/security";
+import { verifyCsrfToken } from "./middleware/csrf";
 
 const app = express();
 const PORT = process.env.PORT || 3002;
@@ -41,6 +43,9 @@ app.use(cors({
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' })); // Increase limit for vector embeddings
 app.use(passport.initialize());
+
+// Security headers (Helmet.js) - MUST be early in middleware chain
+configureSecurityHeaders(app);
 
 // Global rate limiting (60 req/min authenticated, 100 req/min unauthenticated)
 app.use(generalRateLimit);
@@ -75,8 +80,8 @@ app.get("/health", (req, res) => {
 // Authentication routes (with auth rate limiting)
 app.use("/api/v1/auth", authRateLimit, authRoutes);
 
-// Profile routes (protected)
-app.use("/api/v1/profile", profileRoutes);
+// Profile routes (protected with CSRF)
+app.use("/api/v1/profile", verifyCsrfToken, profileRoutes);
 
 // Admin dashboard routes (protected)
 app.use("/admin", authMiddleware, adminMiddleware, adminRoutes);
@@ -84,8 +89,8 @@ app.use("/admin", authMiddleware, adminMiddleware, adminRoutes);
 // Search routes (with dedicated rate limit: 30 req/min)
 app.use("/search", searchRateLimit, searchRoutes);
 
-// Bookmarks CRUD routes
-app.use("/api/bookmarks", bookmarksRoutes);
+// Bookmarks CRUD routes (protected with CSRF)
+app.use("/api/bookmarks", verifyCsrfToken, bookmarksRoutes);
 
 // Graph API routes
 app.use("/api/v1/graph", graphRoutes);

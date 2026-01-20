@@ -5,6 +5,8 @@ import { accountLockoutService } from '../services/auth/AccountLockoutService';
 import { tokenService } from '../services/auth/TokenService';
 import { authMiddleware } from '../middleware/auth';
 import { auditService, AuditEventType } from '../services/AuditService';
+import { getCsrfToken, clearCsrfSecret } from '../middleware/csrf';
+import { sanitizeEmail, sanitizeText } from '../utils/sanitize';
 
 const router = express.Router();
 
@@ -56,8 +58,11 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
+    // Sanitize email to prevent XSS
+    const sanitizedEmail = sanitizeEmail(email);
+
     // Register user
-    const result = await authService.register(email, password);
+    const result = await authService.register(sanitizedEmail, password);
 
     // Set cookies
     setAuthCookies(res, result.tokens);
@@ -128,10 +133,13 @@ router.post('/login', async (req: Request, res: Response) => {
       });
     }
 
+    // Sanitize email to prevent XSS
+    const sanitizedEmail = sanitizeEmail(email);
+
     // Check account lockout
-    const isLocked = await accountLockoutService.isAccountLocked(email);
+    const isLocked = await accountLockoutService.isAccountLocked(sanitizedEmail);
     if (isLocked) {
-      const timeRemaining = await accountLockoutService.getLockoutTimeRemaining(email);
+      const timeRemaining = await accountLockoutService.getLockoutTimeRemaining(sanitizedEmail);
       return res.status(423).json({
         error: 'Account Locked',
         message: 'Too many failed login attempts. Please try again later.',
@@ -140,7 +148,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     // Login user
-    const result = await authService.login(email, password);
+    const result = await authService.login(sanitizedEmail, password);
 
     // Set cookies
     setAuthCookies(res, result.tokens);
@@ -260,6 +268,11 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken');
 
+    // Clear CSRF secret
+    if (req.user?.id) {
+      clearCsrfSecret(req.user.id);
+    }
+
     // Log successful logout
     await auditService.log({
       userId: req.user?.id,
@@ -280,6 +293,12 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
     });
   }
 });
+
+/**
+ * GET /api/v1/auth/csrf-token
+ * Get CSRF token for authenticated user
+ */
+router.get('/csrf-token', authMiddleware, getCsrfToken);
 
 /**
  * GET /api/v1/auth/me

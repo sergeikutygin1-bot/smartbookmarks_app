@@ -1,6 +1,57 @@
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 
+// In-memory cache for CSRF tokens (per session)
+const csrfTokenCache = new Map<string, string>();
+
+/**
+ * Fetch CSRF token from backend for authenticated session
+ */
+async function fetchCsrfToken(accessToken: string): Promise<string | null> {
+  try {
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+    const response = await fetch(`${backendUrl}/api/v1/auth/csrf-token`, {
+      headers: {
+        'Cookie': `accessToken=${accessToken}`,
+      },
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      return data.csrfToken;
+    }
+  } catch (error) {
+    console.error('[Auth Helper] Failed to fetch CSRF token:', error);
+  }
+  return null;
+}
+
+/**
+ * Get CSRF token for current session (cached)
+ */
+async function getCsrfToken(accessToken: string): Promise<string | null> {
+  if (!accessToken) return null;
+
+  // Check cache
+  if (csrfTokenCache.has(accessToken)) {
+    return csrfTokenCache.get(accessToken)!;
+  }
+
+  // Fetch new token
+  const token = await fetchCsrfToken(accessToken);
+  if (token) {
+    csrfTokenCache.set(accessToken, token);
+  }
+  return token;
+}
+
+/**
+ * Clear CSRF token cache (call on logout)
+ */
+export function clearCsrfTokenCache(accessToken: string): void {
+  csrfTokenCache.delete(accessToken);
+}
+
 /**
  * Helper to extract auth from cookies and create headers for backend
  */
@@ -37,6 +88,19 @@ export async function getAuthHeaders(request: NextRequest, additionalHeaders: He
   const authHeader = request.headers.get('authorization');
   if (authHeader) {
     headers['Authorization'] = authHeader;
+  }
+
+  // Add CSRF token for state-changing requests
+  const method = request.method.toUpperCase();
+  const needsCsrf = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method);
+
+  if (needsCsrf && accessToken && !authHeader) {
+    // Only add CSRF for cookie-based auth (not Bearer token)
+    const csrfToken = await getCsrfToken(accessToken);
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+      console.log('[Auth Helper] Added CSRF token to request');
+    }
   }
 
   return headers;
