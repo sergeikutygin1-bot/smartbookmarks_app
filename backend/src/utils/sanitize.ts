@@ -71,13 +71,14 @@ export function sanitizeUrl(dirty: string): string {
 
   const cleaned = dirty.trim();
 
-  // Block dangerous protocols
+  // Block dangerous protocols - return empty string instead of throwing
   const dangerousProtocols = ['javascript:', 'data:', 'vbscript:', 'file:'];
   const lowerUrl = cleaned.toLowerCase();
 
   for (const protocol of dangerousProtocols) {
     if (lowerUrl.startsWith(protocol)) {
-      throw new Error(`Invalid URL: ${protocol} protocol not allowed`);
+      console.warn(`[Sanitize] Blocked dangerous protocol: ${protocol}`);
+      return ''; // Return empty string instead of throwing error
     }
   }
 
