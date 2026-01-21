@@ -10,7 +10,7 @@ Smart Bookmark is an AI-powered universal content capture and organization appli
 
 ## ⚠️ CRITICAL WARNINGS - READ FIRST
 
-**Before making changes to authentication, routing, or Docker config, read [FIXES_2026-01-19.md](FIXES_2026-01-19.md) for detailed explanations of common issues and their solutions.**
+**Before making changes to authentication, routing, or Docker config, read [FIXES_2026-01-19.md](docs/fixes/FIXES_2026-01-19.md) for detailed explanations of common issues and their solutions.**
 
 ### Common Pitfalls to Avoid
 
@@ -20,7 +20,7 @@ Smart Bookmark is an AI-powered universal content capture and organization appli
 4. **Config changes require rebuild** - `next.config.ts` is not volume-mounted; run `docker-compose build frontend` after changes
 5. **Schema sync after git operations** - Run `npx prisma db push` after git reset/checkout to sync database
 
-See [FIXES_2026-01-19.md](FIXES_2026-01-19.md) for full details and emergency reset procedures.
+See [FIXES_2026-01-19.md](docs/fixes/FIXES_2026-01-19.md) for full details and emergency reset procedures.
 
 ## Architecture
 
@@ -182,9 +182,17 @@ smart_bookmarks_v2/
 │   └── prisma/
 │       └── schema.prisma               # Database schema with 12 tables
 │
-├── docs/                                # Comprehensive documentation
+├── docs/                                # Comprehensive documentation (organized by topic)
+│   ├── README.md                        # Documentation index
+│   ├── architecture/                    # System design & PRD
+│   ├── deployment/                      # Docker, deployment guides
+│   ├── fixes/                           # Bug fixes & debugging
+│   ├── phases/                          # Project phase summaries
+│   ├── api/                             # API documentation
+│   ├── database/                        # Database & pgvector guides
+│   ├── ios/                             # iOS development
+│   └── security/                        # Security notes
 ├── docker-compose.yml                   # 6 services: frontend, backend, workers (2), postgres, redis
-├── PHASE_4_SUMMARY.md                   # Phase 4 completion report
 └── CLAUDE.md                            # This file
 ```
 
@@ -526,9 +534,10 @@ docker exec smartbookmarks_backend npx tsx scripts/create-synthetic-clusters.ts
 
 ## References
 
-- **[FIXES_2026-01-19.md](FIXES_2026-01-19.md)** - ⚠️ Critical fixes and prevention guide (READ THIS FIRST)
-- **[PHASE_4_SUMMARY.md](PHASE_4_SUMMARY.md)** - Phase 4 completion report with performance benchmarks
-- **[docs/APP_PRD.MD](docs/APP_PRD.MD)** - Original product requirements
-- **[docs/Backend_documentation.MD](docs/Backend_documentation.MD)** - Backend architecture details
-- **[docs/Frontend_documentation.MD](docs/Frontend_documentation.MD)** - Frontend specifications
-- **[docs/iOS_Development_Plan.md](docs/iOS_Development_Plan.md)** - Mobile app roadmap
+- **[docs/README.md](docs/README.md)** - 📚 Complete documentation index and guide
+- **[docs/fixes/FIXES_2026-01-19.md](docs/fixes/FIXES_2026-01-19.md)** - ⚠️ Critical fixes and prevention guide (READ THIS FIRST)
+- **[docs/phases/PHASE_4_SUMMARY.md](docs/phases/PHASE_4_SUMMARY.md)** - Phase 4 completion report with performance benchmarks
+- **[docs/architecture/APP_PRD.MD](docs/architecture/APP_PRD.MD)** - Original product requirements
+- **[docs/architecture/Backend_documentation.MD](docs/architecture/Backend_documentation.MD)** - Backend architecture details
+- **[docs/architecture/Frontend_documentation.MD](docs/architecture/Frontend_documentation.MD)** - Frontend specifications
+- **[docs/ios/iOS_Development_Plan.md](docs/ios/iOS_Development_Plan.md)** - Mobile app roadmap

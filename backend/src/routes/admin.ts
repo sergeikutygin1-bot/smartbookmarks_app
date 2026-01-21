@@ -790,8 +790,15 @@ function getInlineAdminHTML(): string {
 </head>
 <body>
   <div class="container">
-    <h1>🚀 Smart Bookmarks - Agent Dashboard</h1>
-    <p style="color: #888; margin-bottom: 20px;">Real-time monitoring and debugging interface</p>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+      <div>
+        <h1>🚀 Smart Bookmarks - Agent Dashboard</h1>
+        <p style="color: #888;">Real-time monitoring and debugging interface</p>
+      </div>
+      <a href="/api/docs" target="_blank" style="background: #2196F3; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: flex; align-items: center; gap: 8px;">
+        📚 API Documentation
+      </a>
+    </div>
 
     <div class="stats" id="stats"></div>
 

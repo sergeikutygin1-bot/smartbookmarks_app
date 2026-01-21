@@ -11,8 +11,88 @@ import { createRedisConnection } from '../config/redis';
 const router = express.Router();
 
 /**
- * POST /enrich
- * Queue a new enrichment job
+ * @openapi
+ * /api/v1/enrich:
+ *   post:
+ *     summary: Queue enrichment job
+ *     description: |
+ *       Queue a new bookmark enrichment job for background processing.
+ *
+ *       **Enrichment Steps:**
+ *       1. Extract content from URL
+ *       2. Generate AI summary
+ *       3. Auto-generate tags
+ *       4. Create vector embedding
+ *       5. Extract entities and concepts
+ *
+ *       Returns a job ID for polling or SSE streaming.
+ *     tags:
+ *       - Enrichment
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - url
+ *             properties:
+ *               url:
+ *                 type: string
+ *                 format: uri
+ *                 description: URL to enrich
+ *                 example: https://example.com/article
+ *               userTitle:
+ *                 type: string
+ *                 description: Optional user-provided title (overrides extracted title)
+ *               userSummary:
+ *                 type: string
+ *                 description: Optional user-provided summary
+ *               userTags:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Optional user-provided tags
+ *               existingTags:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 description: Existing tags to merge with auto-generated tags
+ *               bookmarkId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: Optional bookmark ID if updating existing bookmark
+ *     responses:
+ *       200:
+ *         description: Enrichment job queued
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 jobId:
+ *                   type: string
+ *                   description: Job ID for tracking progress
+ *                   example: enrich-abc123
+ *                 status:
+ *                   type: string
+ *                   example: queued
+ *                 message:
+ *                   type: string
+ *                   example: Enrichment job queued successfully
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       429:
+ *         $ref: '#/components/responses/RateLimitError'
+ *       500:
+ *         description: Server error
  */
 router.post('/', authMiddleware, enrichmentRateLimit, checkDailyBudget, async (req: Request, res: Response) => {
   const { url, userTitle, userSummary, userTags, existingTags = [], bookmarkId } = req.body;
@@ -60,8 +140,59 @@ router.post('/', authMiddleware, enrichmentRateLimit, checkDailyBudget, async (r
 });
 
 /**
- * GET /enrich/:jobId
- * Poll enrichment job status (traditional polling endpoint)
+ * @openapi
+ * /api/v1/enrich/{jobId}:
+ *   get:
+ *     summary: Get job status
+ *     description: Poll enrichment job status (traditional polling - prefer SSE streaming for real-time updates)
+ *     tags:
+ *       - Enrichment
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Job ID from queue response
+ *         example: enrich-abc123
+ *     responses:
+ *       200:
+ *         description: Job status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 jobId:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   enum: [waiting, active, completed, failed, delayed]
+ *                   example: completed
+ *                 progress:
+ *                   type: number
+ *                   description: Progress percentage (0-100)
+ *                   example: 100
+ *                 attemptsMade:
+ *                   type: integer
+ *                   description: Number of processing attempts
+ *                 result:
+ *                   type: object
+ *                   description: Enrichment result (only present when status=completed)
+ *                 error:
+ *                   type: string
+ *                   description: Error message (only present when status=failed)
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         description: Not authorized to access this job
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
  */
 router.get('/:jobId', authMiddleware, jobOwnershipMiddleware, async (req: Request, res: Response) => {
   const { jobId } = req.params;
@@ -115,18 +246,67 @@ router.get('/:jobId', authMiddleware, jobOwnershipMiddleware, async (req: Reques
 });
 
 /**
- * GET /enrich/:jobId/stream
- * Server-Sent Events endpoint for real-time enrichment status updates
+ * @openapi
+ * /api/v1/enrich/{jobId}/stream:
+ *   get:
+ *     summary: Stream job status (SSE)
+ *     description: |
+ *       Server-Sent Events (SSE) endpoint for real-time enrichment status updates.
  *
- * This replaces the polling approach with a push-based model:
- * - Client opens EventSource connection
- * - Server pushes updates when job state changes
- * - Connection auto-closes when job completes/fails
+ *       **Advantages over polling:**
+ *       - 98% fewer requests (60 polls → 1 connection)
+ *       - Instant updates (no polling delay)
+ *       - Lower backend load
  *
- * Benefits:
- * - 98% fewer requests (60 polls → 1 connection per enrichment)
- * - Instant updates (no 2-second polling delay)
- * - Lower backend load (no repeated database queries)
+ *       **Usage:**
+ *       ```javascript
+ *       const eventSource = new EventSource('/enrich/job-id/stream');
+ *       eventSource.onmessage = (event) => {
+ *         const data = JSON.parse(event.data);
+ *         if (data.status === 'completed') {
+ *           // Handle result
+ *           eventSource.close();
+ *         }
+ *       };
+ *       ```
+ *
+ *       **Event Format:**
+ *       - `{status: 'connected', jobId: string}` - Initial connection
+ *       - `{status: 'completed', result: object}` - Job completed
+ *       - `{status: 'failed', error: string}` - Job failed
+ *       - `{status: 'timeout', error: string}` - 3-minute timeout
+ *     tags:
+ *       - Enrichment
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jobId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Job ID from queue response
+ *         example: enrich-abc123
+ *     responses:
+ *       200:
+ *         description: SSE stream (text/event-stream)
+ *         content:
+ *           text/event-stream:
+ *             schema:
+ *               type: string
+ *               example: |
+ *                 data: {"status":"connected","jobId":"enrich-abc123"}
+ *
+ *                 data: {"status":"completed","result":{...}}
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         description: Not authorized to access this job
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
  */
 router.get('/:jobId/stream', authMiddleware, jobOwnershipMiddleware, async (req: Request, res: Response) => {
   const { jobId } = req.params;

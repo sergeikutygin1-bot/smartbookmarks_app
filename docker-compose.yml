@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data_v2:/var/lib/postgresql/data
+      - smart_bookmarks_v2_postgres_data:/var/lib/postgresql/data
       - ./postgres.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
@@ -36,6 +36,67 @@ services:
     networks:
       - smartbookmarks
 
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: smartbookmarks_jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4318:4318"    # OTLP HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:16686"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartbookmarks
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: smartbookmarks_prometheus
+    ports:
+      - "9090:9090"  # Prometheus UI
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartbookmarks
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: smartbookmarks_grafana
+    ports:
+      - "3001:3000"  # Grafana UI (mapped to 3001 to avoid conflict with frontend)
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smartbookmarks
+
   backend-api:
     build:
       context: ./backend
@@ -54,10 +115,15 @@ services:
       - DATABASE_URL=postgresql://smartbookmarks:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/smartbookmarks
       - REDIS_URL=redis://redis:6379
       - PORT=3002
+      - ENABLE_TRACING=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318
+      - OTEL_SERVICE_NAME=smart-bookmarks-backend
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      jaeger:
         condition: service_healthy
     command: >
       sh -c "npx prisma migrate deploy &&
@@ -155,9 +221,16 @@ services:
       - smartbookmarks
 
 volumes:
-  postgres_data_v2:
+  # ⚠️ CRITICAL: External volume prevents 'docker-compose down -v' from deleting data
+  # Volume contains all user data: bookmarks, users, entities, concepts, relationships
+  # To backup: ./scripts/backup-database.sh
+  # To restore: ./scripts/restore-backup.sh <backup-file>
+  smart_bookmarks_v2_postgres_data:
+    external: true  # NEVER REMOVE THIS LINE - Protects data from deletion
   redis_data:
   backend_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   smartbookmarks:

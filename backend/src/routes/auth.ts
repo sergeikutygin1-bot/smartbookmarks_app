@@ -5,6 +5,8 @@ import { accountLockoutService } from '../services/auth/AccountLockoutService';
 import { tokenService } from '../services/auth/TokenService';
 import { authMiddleware } from '../middleware/auth';
 import { auditService, AuditEventType } from '../services/AuditService';
+import { getCsrfToken, clearCsrfSecret } from '../middleware/csrf';
+import { sanitizeEmail, sanitizeText } from '../utils/sanitize';
 
 const router = express.Router();
 
@@ -33,8 +35,72 @@ function setAuthCookies(res: Response, tokens: TokenPair) {
 }
 
 /**
- * POST /api/v1/auth/register
- * Register a new user account
+ * @openapi
+ * /api/v1/auth/register:
+ *   post:
+ *     summary: Register a new user account
+ *     description: Create a new user account with email and password. Sets authentication cookies automatically.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *               - confirmPassword
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: user@example.com
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 8
+ *                 description: Password (min 8 characters, requires uppercase, lowercase, number, special char)
+ *                 example: SecurePass123!
+ *               confirmPassword:
+ *                 type: string
+ *                 format: password
+ *                 description: Password confirmation (must match password)
+ *                 example: SecurePass123!
+ *     responses:
+ *       201:
+ *         description: User registered successfully
+ *         headers:
+ *           Set-Cookie:
+ *             description: Sets accessToken and refreshToken cookies
+ *             schema:
+ *               type: string
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 tokens:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                     refreshToken:
+ *                       type: string
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       409:
+ *         description: Email already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
  */
 router.post('/register', async (req: Request, res: Response) => {
   try {
@@ -56,8 +122,11 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
+    // Sanitize email to prevent XSS
+    const sanitizedEmail = sanitizeEmail(email);
+
     // Register user
-    const result = await authService.register(email, password);
+    const result = await authService.register(sanitizedEmail, password);
 
     // Set cookies
     setAuthCookies(res, result.tokens);
@@ -113,8 +182,82 @@ router.post('/register', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/v1/auth/login
- * Login with email and password
+ * @openapi
+ * /api/v1/auth/login:
+ *   post:
+ *     summary: Login with email and password
+ *     description: Authenticate user and receive JWT tokens. Sets authentication cookies automatically. Implements account lockout after 5 failed attempts.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: user@example.com
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 description: User password
+ *                 example: SecurePass123!
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         headers:
+ *           Set-Cookie:
+ *             description: Sets accessToken and refreshToken cookies
+ *             schema:
+ *               type: string
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 tokens:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                     refreshToken:
+ *                       type: string
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       423:
+ *         description: Account locked due to too many failed attempts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: Account Locked
+ *                 message:
+ *                   type: string
+ *                   example: Too many failed login attempts. Please try again later.
+ *                 retryAfter:
+ *                   type: integer
+ *                   description: Seconds until account unlocks
+ *                   example: 900
+ *       500:
+ *         description: Server error
  */
 router.post('/login', async (req: Request, res: Response) => {
   try {
@@ -128,10 +271,13 @@ router.post('/login', async (req: Request, res: Response) => {
       });
     }
 
+    // Sanitize email to prevent XSS
+    const sanitizedEmail = sanitizeEmail(email);
+
     // Check account lockout
-    const isLocked = await accountLockoutService.isAccountLocked(email);
+    const isLocked = await accountLockoutService.isAccountLocked(sanitizedEmail);
     if (isLocked) {
-      const timeRemaining = await accountLockoutService.getLockoutTimeRemaining(email);
+      const timeRemaining = await accountLockoutService.getLockoutTimeRemaining(sanitizedEmail);
       return res.status(423).json({
         error: 'Account Locked',
         message: 'Too many failed login attempts. Please try again later.',
@@ -140,7 +286,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     // Login user
-    const result = await authService.login(email, password);
+    const result = await authService.login(sanitizedEmail, password);
 
     // Set cookies
     setAuthCookies(res, result.tokens);
@@ -200,8 +346,51 @@ router.post('/login', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/v1/auth/refresh
- * Refresh access token using refresh token
+ * @openapi
+ * /api/v1/auth/refresh:
+ *   post:
+ *     summary: Refresh access token
+ *     description: Get a new access token using a valid refresh token. Accepts token from cookie or request body.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 description: Refresh token (optional if provided via cookie)
+ *                 example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *     responses:
+ *       200:
+ *         description: Token refreshed successfully
+ *         headers:
+ *           Set-Cookie:
+ *             description: Sets new accessToken and refreshToken cookies
+ *             schema:
+ *               type: string
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         description: Invalid or expired refresh token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
  */
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
@@ -243,8 +432,41 @@ router.post('/refresh', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/v1/auth/logout
- * Logout and revoke refresh token
+ * @openapi
+ * /api/v1/auth/logout:
+ *   post:
+ *     summary: Logout user
+ *     description: Logout user, revoke refresh token, and clear authentication cookies
+ *     tags:
+ *       - Authentication
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 description: Refresh token to revoke (optional if provided via cookie)
+ *     responses:
+ *       200:
+ *         description: Logged out successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Logged out successfully
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -259,6 +481,11 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
     // Clear cookies
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken');
+
+    // Clear CSRF secret
+    if (req.user?.id) {
+      clearCsrfSecret(req.user.id);
+    }
 
     // Log successful logout
     await auditService.log({
@@ -282,8 +509,60 @@ router.post('/logout', authMiddleware, async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/auth/me
- * Get current authenticated user
+ * @openapi
+ * /api/v1/auth/csrf-token:
+ *   get:
+ *     summary: Get CSRF token
+ *     description: Retrieve a CSRF token for the authenticated user. Required for cookie-based authentication on POST/PATCH/DELETE operations.
+ *     tags:
+ *       - Authentication
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: CSRF token generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 csrfToken:
+ *                   type: string
+ *                   description: CSRF token to include in X-CSRF-Token header
+ *                   example: abc123def456
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ */
+router.get('/csrf-token', authMiddleware, getCsrfToken);
+
+/**
+ * @openapi
+ * /api/v1/auth/me:
+ *   get:
+ *     summary: Get current user
+ *     description: Retrieve the authenticated user's profile information
+ *     tags:
+ *       - Authentication
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current user information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
  */
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -311,8 +590,36 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/auth/verify-email?token=...
- * Verify email address using verification token
+ * @openapi
+ * /api/v1/auth/verify-email:
+ *   get:
+ *     summary: Verify email address
+ *     description: Verify user email address using the token sent via email
+ *     tags:
+ *       - Authentication
+ *     parameters:
+ *       - in: query
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Email verification token from email link
+ *         example: abc123def456
+ *     responses:
+ *       200:
+ *         description: Email verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Email verified successfully
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         description: Server error
  */
 router.get('/verify-email', async (req: Request, res: Response) => {
   try {
@@ -360,8 +667,48 @@ router.get('/verify-email', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/v1/auth/resend-verification
- * Resend email verification link
+ * @openapi
+ * /api/v1/auth/resend-verification:
+ *   post:
+ *     summary: Resend verification email
+ *     description: Resend email verification link to user's email address
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: user@example.com
+ *     responses:
+ *       200:
+ *         description: Verification email sent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Verification email sent
+ *       400:
+ *         description: Email already verified or invalid
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
  */
 router.post('/resend-verification', async (req: Request, res: Response) => {
   try {
@@ -405,8 +752,38 @@ router.post('/resend-verification', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/v1/auth/forgot-password
- * Request password reset email
+ * @openapi
+ * /api/v1/auth/forgot-password:
+ *   post:
+ *     summary: Request password reset
+ *     description: Request a password reset email. Always returns success to prevent user enumeration.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User email address
+ *                 example: user@example.com
+ *     responses:
+ *       200:
+ *         description: Password reset email sent (if email exists)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: If that email exists, a password reset link has been sent
  */
 router.post('/forgot-password', async (req: Request, res: Response) => {
   try {
@@ -443,8 +820,48 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/v1/auth/reset-password
- * Reset password using reset token
+ * @openapi
+ * /api/v1/auth/reset-password:
+ *   post:
+ *     summary: Reset password
+ *     description: Reset user password using the token from password reset email
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - token
+ *               - newPassword
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Password reset token from email link
+ *                 example: abc123def456
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 8
+ *                 description: New password (min 8 characters, requires uppercase, lowercase, number, special char)
+ *                 example: NewSecurePass123!
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Password reset successfully
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       500:
+ *         description: Server error
  */
 router.post('/reset-password', async (req: Request, res: Response) => {
   try {
@@ -492,8 +909,31 @@ router.post('/reset-password', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/auth/google/test
- * Test endpoint to verify callback URL configuration
+ * @openapi
+ * /api/v1/auth/google/test:
+ *   get:
+ *     summary: Test Google OAuth configuration
+ *     description: Test endpoint to verify Google OAuth callback URL configuration
+ *     tags:
+ *       - Authentication
+ *     responses:
+ *       200:
+ *         description: OAuth configuration details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 callbackUrl:
+ *                   type: string
+ *                 instructions:
+ *                   type: string
+ *                 googleConsoleUrl:
+ *                   type: string
+ *                 clientId:
+ *                   type: string
  */
 router.get('/google/test', (req: Request, res: Response) => {
   const callbackUrl = 'http://localhost:3002/api/v1/auth/google/callback';
@@ -507,8 +947,18 @@ router.get('/google/test', (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/auth/google
- * Initiate Google OAuth flow
+ * @openapi
+ * /api/v1/auth/google:
+ *   get:
+ *     summary: Google OAuth login
+ *     description: Initiate Google OAuth authentication flow. Redirects user to Google login page.
+ *     tags:
+ *       - Authentication
+ *     responses:
+ *       302:
+ *         description: Redirects to Google OAuth consent page
+ *       500:
+ *         description: OAuth initialization failed
  */
 router.get('/google', passport.authenticate('google', {
   scope: ['profile', 'email'],
@@ -516,8 +966,37 @@ router.get('/google', passport.authenticate('google', {
 }));
 
 /**
- * GET /api/v1/auth/google/callback
- * Google OAuth callback handler
+ * @openapi
+ * /api/v1/auth/google/callback:
+ *   get:
+ *     summary: Google OAuth callback
+ *     description: Google OAuth callback endpoint. Handles authentication response and redirects to frontend with auth cookies set.
+ *     tags:
+ *       - Authentication
+ *     parameters:
+ *       - in: query
+ *         name: code
+ *         schema:
+ *           type: string
+ *         description: Authorization code from Google (automatically provided)
+ *       - in: query
+ *         name: state
+ *         schema:
+ *           type: string
+ *         description: State parameter for CSRF protection (automatically provided)
+ *     responses:
+ *       302:
+ *         description: Redirects to frontend with auth=success or error=oauth_failed
+ *         headers:
+ *           Set-Cookie:
+ *             description: Sets accessToken and refreshToken cookies on success
+ *             schema:
+ *               type: string
+ *           Location:
+ *             description: Redirect URL to frontend
+ *             schema:
+ *               type: string
+ *               example: http://localhost:3000/?auth=success
  */
 router.get('/google/callback',
   (req: Request, res: Response, next: any) => {
@@ -564,8 +1043,18 @@ router.get('/google/callback',
 );
 
 /**
- * GET /api/v1/auth/github
- * Initiate GitHub OAuth flow
+ * @openapi
+ * /api/v1/auth/github:
+ *   get:
+ *     summary: GitHub OAuth login
+ *     description: Initiate GitHub OAuth authentication flow. Redirects user to GitHub login page.
+ *     tags:
+ *       - Authentication
+ *     responses:
+ *       302:
+ *         description: Redirects to GitHub OAuth consent page
+ *       500:
+ *         description: OAuth initialization failed
  */
 router.get('/github', passport.authenticate('github', {
   scope: ['user:email'],
@@ -573,8 +1062,37 @@ router.get('/github', passport.authenticate('github', {
 }));
 
 /**
- * GET /api/v1/auth/github/callback
- * GitHub OAuth callback handler
+ * @openapi
+ * /api/v1/auth/github/callback:
+ *   get:
+ *     summary: GitHub OAuth callback
+ *     description: GitHub OAuth callback endpoint. Handles authentication response and redirects to frontend with auth cookies set.
+ *     tags:
+ *       - Authentication
+ *     parameters:
+ *       - in: query
+ *         name: code
+ *         schema:
+ *           type: string
+ *         description: Authorization code from GitHub (automatically provided)
+ *       - in: query
+ *         name: state
+ *         schema:
+ *           type: string
+ *         description: State parameter for CSRF protection (automatically provided)
+ *     responses:
+ *       302:
+ *         description: Redirects to frontend with auth=success or error=oauth_failed
+ *         headers:
+ *           Set-Cookie:
+ *             description: Sets accessToken and refreshToken cookies on success
+ *             schema:
+ *               type: string
+ *           Location:
+ *             description: Redirect URL to frontend
+ *             schema:
+ *               type: string
+ *               example: http://localhost:3000/?auth=success
  */
 router.get('/github/callback',
   passport.authenticate('github', { session: false, failureRedirect: '/login' }),

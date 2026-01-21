@@ -44,7 +44,9 @@ export interface CreateBookmarkInput {
 }
 
 export interface UpdateBookmarkInput {
+  url?: string;
   title?: string;
+  domain?: string;
   summary?: string;
   keyPoints?: string[];
   contentType?: string;

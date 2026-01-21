@@ -20,6 +20,15 @@ import { BookmarkFilters } from './api';
  */
 
 /**
+ * Backend URL for direct API calls
+ * - Server-side (Next.js API routes): uses BACKEND_URL (Docker internal network)
+ * - Client-side (browser): uses NEXT_PUBLIC_BACKEND_URL (localhost:3002)
+ */
+const BACKEND_URL = typeof window !== 'undefined'
+  ? (process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3002')
+  : (process.env.BACKEND_URL || 'http://localhost:3002');
+
+/**
  * Helper to build query string from filter parameters
  */
 function buildQueryString(filters?: BookmarkFilters): string {
@@ -55,68 +64,66 @@ function buildQueryString(filters?: BookmarkFilters): string {
 }
 
 /**
- * Type-safe route definitions for the Smart Bookmarks API
+ * Type-safe route definitions for the Smart Bookmarks API (v1)
  */
 export const apiRoutes = {
   /**
-   * Bookmark-related endpoints
+   * Bookmark-related endpoints (direct to backend with credentials)
    */
   bookmarks: {
     /**
-     * GET /api/bookmarks - List all bookmarks with optional filters
+     * GET /api/v1/bookmarks - List all bookmarks with optional filters
      */
     list: (filters?: BookmarkFilters) =>
-      `/api/bookmarks${buildQueryString(filters)}` as const,
+      `${BACKEND_URL}/api/v1/bookmarks${buildQueryString(filters)}` as const,
 
     /**
-     * GET /api/bookmarks/:id - Get a single bookmark by ID
+     * GET /api/v1/bookmarks/:id - Get a single bookmark by ID
      */
-    detail: (id: string) => `/api/bookmarks/${id}` as const,
+    detail: (id: string) => `${BACKEND_URL}/api/v1/bookmarks/${id}` as const,
 
     /**
-     * POST /api/bookmarks - Create a new bookmark
+     * POST /api/v1/bookmarks - Create a new bookmark
      */
-    create: () => '/api/bookmarks' as const,
+    create: () => `${BACKEND_URL}/api/v1/bookmarks` as const,
 
     /**
-     * PATCH /api/bookmarks/:id - Update an existing bookmark
+     * PATCH /api/v1/bookmarks/:id - Update an existing bookmark
      */
-    update: (id: string) => `/api/bookmarks/${id}` as const,
+    update: (id: string) => `${BACKEND_URL}/api/v1/bookmarks/${id}` as const,
 
     /**
-     * DELETE /api/bookmarks/:id - Delete a bookmark
+     * DELETE /api/v1/bookmarks/:id - Delete a bookmark
      */
-    delete: (id: string) => `/api/bookmarks/${id}` as const,
+    delete: (id: string) => `${BACKEND_URL}/api/v1/bookmarks/${id}` as const,
 
     /**
-     * POST /api/bookmarks/:id/enrich - Queue AI enrichment for a bookmark
+     * POST /api/v1/bookmarks/:id/enrich - Queue AI enrichment for a bookmark
      */
-    enrich: (id: string) => `/api/bookmarks/${id}/enrich` as const,
+    enrich: (id: string) => `${BACKEND_URL}/api/v1/bookmarks/${id}/enrich` as const,
   },
 
   /**
-   * Enrichment job status endpoints
+   * Enrichment job status endpoints (direct to backend)
    */
   enrich: {
     /**
-     * GET /api/enrich/:jobId - Poll enrichment job status
+     * GET /api/v1/enrich/:jobId - Poll enrichment job status
      */
-    status: (jobId: string) => `/api/enrich/${jobId}` as const,
+    status: (jobId: string) => `${BACKEND_URL}/api/v1/enrich/${jobId}` as const,
 
     /**
-     * GET /api/enrich/:jobId/stream - Server-Sent Events for enrichment status
-     * (To be implemented in future)
+     * GET /api/v1/enrich/:jobId/stream - Server-Sent Events for enrichment status
      */
-    stream: (jobId: string) => `/api/enrich/${jobId}/stream` as const,
+    stream: (jobId: string) => `${BACKEND_URL}/api/v1/enrich/${jobId}/stream` as const,
   },
 
   /**
-   * Search endpoints
+   * Search endpoints (direct to backend)
    */
   search: {
     /**
-     * GET http://localhost:3002/search - Hybrid search (keyword + semantic)
-     * Note: This goes directly to backend, not through Next.js API routes
+     * GET /api/v1/search - Hybrid search (keyword + semantic)
      */
     hybrid: (query: string, mode?: 'keyword' | 'semantic' | 'hybrid', limit?: number) => {
       const params = new URLSearchParams({
@@ -124,7 +131,7 @@ export const apiRoutes = {
         mode: mode || 'hybrid',
         limit: String(limit || 50),
       });
-      return `http://localhost:3002/search?${params}` as const;
+      return `${BACKEND_URL}/api/v1/search?${params}` as const;
     },
   },
 } as const;

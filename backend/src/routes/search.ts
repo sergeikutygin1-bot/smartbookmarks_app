@@ -14,16 +14,85 @@ const searchResultsCache = createCache('search-results:', 600); // 10min TTL
 router.use(authMiddleware);
 
 /**
- * GET /api/search?q=query&mode=keyword|semantic|hybrid
- * Perform search across user's bookmarks
+ * @openapi
+ * /api/v1/search:
+ *   get:
+ *     summary: Search bookmarks
+ *     description: |
+ *       Search across user's bookmarks using keyword, semantic (vector), or hybrid search.
  *
- * Query params:
- * - q: string (required) - Search query
- * - mode: 'keyword' | 'semantic' | 'hybrid' (optional, default: 'hybrid')
- * - limit: number (optional, default: 20)
- *
- * Response:
- * - data: Array of bookmark results with scores
+ *       **Search Modes:**
+ *       - `keyword`: Full-text search using PostgreSQL tsvector
+ *       - `semantic`: Vector similarity search using embeddings
+ *       - `hybrid`: Combined keyword + semantic search (default)
+ *     tags:
+ *       - Search
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Search query
+ *         example: machine learning tutorial
+ *       - in: query
+ *         name: mode
+ *         schema:
+ *           type: string
+ *           enum: [keyword, semantic, hybrid]
+ *           default: hybrid
+ *         description: Search mode (keyword, semantic, or hybrid)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Maximum number of results
+ *     responses:
+ *       200:
+ *         description: Search results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     allOf:
+ *                       - $ref: '#/components/schemas/Bookmark'
+ *                       - type: object
+ *                         properties:
+ *                           score:
+ *                             type: number
+ *                             description: Relevance score (0-1)
+ *                             example: 0.87
+ *                 metadata:
+ *                   type: object
+ *                   properties:
+ *                     query:
+ *                       type: string
+ *                       example: machine learning tutorial
+ *                     mode:
+ *                       type: string
+ *                       enum: [keyword, semantic, hybrid]
+ *                       example: hybrid
+ *                     resultsCount:
+ *                       type: integer
+ *                       example: 15
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       429:
+ *         $ref: '#/components/responses/RateLimitError'
+ *       500:
+ *         description: Server error
  */
 router.get('/', async (req: Request, res: Response) => {
   try {

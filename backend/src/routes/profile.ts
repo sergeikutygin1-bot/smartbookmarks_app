@@ -6,12 +6,36 @@ import { auditService, AuditEventType } from '../services/AuditService';
 
 const router = express.Router();
 
-// All routes require authentication
-router.use(authMiddleware);
+// Note: authMiddleware is applied in server.ts before this router
+// No need to apply it again here
 
 /**
- * GET /api/v1/profile
- * Get current user profile
+ * @openapi
+ * /api/v1/profile:
+ *   get:
+ *     summary: Get user profile
+ *     description: Retrieve the authenticated user's profile information
+ *     tags:
+ *       - Profile
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User profile information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -46,8 +70,57 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 /**
- * PATCH /api/v1/profile/email
- * Update user email (immediate, no verification for MVP)
+ * @openapi
+ * /api/v1/profile/email:
+ *   patch:
+ *     summary: Update user email
+ *     description: Update the authenticated user's email address (immediate, no verification for MVP)
+ *     tags:
+ *       - Profile
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - newEmail
+ *             properties:
+ *               newEmail:
+ *                 type: string
+ *                 format: email
+ *                 description: New email address
+ *                 example: newemail@example.com
+ *     responses:
+ *       200:
+ *         description: Email updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Email updated successfully
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       409:
+ *         description: Email already in use
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
  */
 router.patch('/email', async (req: Request, res: Response) => {
   try {
@@ -122,8 +195,66 @@ router.patch('/email', async (req: Request, res: Response) => {
 });
 
 /**
- * PATCH /api/v1/profile/password
- * Change user password (requires current password verification)
+ * @openapi
+ * /api/v1/profile/password:
+ *   patch:
+ *     summary: Change password
+ *     description: Change user password (requires current password verification)
+ *     tags:
+ *       - Profile
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *               - confirmPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 format: password
+ *                 description: Current password for verification
+ *                 example: OldPass123!
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 minLength: 8
+ *                 description: New password (min 8 characters, requires uppercase, lowercase, number, special char)
+ *                 example: NewSecurePass123!
+ *               confirmPassword:
+ *                 type: string
+ *                 format: password
+ *                 description: Confirm new password (must match newPassword)
+ *                 example: NewSecurePass123!
+ *     responses:
+ *       200:
+ *         description: Password changed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Password changed successfully
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
+ *       401:
+ *         description: Current password is incorrect or unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       500:
+ *         description: Server error
  */
 router.patch('/password', async (req: Request, res: Response) => {
   try {
@@ -217,8 +348,45 @@ router.patch('/password', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/profile/analytics/summary
- * Get summary analytics (counts of bookmarks, entities, concepts, relationships)
+ * @openapi
+ * /api/v1/profile/analytics/summary:
+ *   get:
+ *     summary: Get analytics summary
+ *     description: Retrieve summary statistics for user's bookmarks, entities, concepts, and relationships
+ *     tags:
+ *       - Profile
+ *       - Analytics
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Analytics summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 bookmarks:
+ *                   type: integer
+ *                   description: Total number of bookmarks
+ *                   example: 150
+ *                 entities:
+ *                   type: integer
+ *                   description: Total number of entities
+ *                   example: 42
+ *                 concepts:
+ *                   type: integer
+ *                   description: Total number of concepts
+ *                   example: 28
+ *                 relationships:
+ *                   type: integer
+ *                   description: Total number of relationships
+ *                   example: 312
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/analytics/summary', async (req: Request, res: Response) => {
   try {
@@ -248,8 +416,50 @@ router.get('/analytics/summary', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/profile/analytics/bookmarks/trend?days=30
- * Get bookmark creation trend over time
+ * @openapi
+ * /api/v1/profile/analytics/bookmarks/trend:
+ *   get:
+ *     summary: Get bookmark creation trend
+ *     description: Retrieve bookmark creation trend over a specified time period
+ *     tags:
+ *       - Profile
+ *       - Analytics
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema:
+ *           type: integer
+ *           default: 30
+ *           minimum: 1
+ *           maximum: 365
+ *         description: Number of days to look back
+ *     responses:
+ *       200:
+ *         description: Bookmark trend data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 trend:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       date:
+ *                         type: string
+ *                         format: date
+ *                         example: "2026-01-20"
+ *                       count:
+ *                         type: integer
+ *                         example: 5
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/analytics/bookmarks/trend', async (req: Request, res: Response) => {
   try {
@@ -307,8 +517,56 @@ router.get('/analytics/bookmarks/trend', async (req: Request, res: Response) => 
 });
 
 /**
- * GET /api/v1/profile/analytics/entities/top?limit=10
- * Get top entities by occurrence count
+ * @openapi
+ * /api/v1/profile/analytics/entities/top:
+ *   get:
+ *     summary: Get top entities
+ *     description: Retrieve top entities ranked by occurrence count
+ *     tags:
+ *       - Profile
+ *       - Analytics
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Maximum number of entities to return
+ *     responses:
+ *       200:
+ *         description: Top entities list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 entities:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       name:
+ *                         type: string
+ *                         example: OpenAI
+ *                       entityType:
+ *                         type: string
+ *                         enum: [person, company, technology, location, product]
+ *                         example: company
+ *                       occurrenceCount:
+ *                         type: integer
+ *                         example: 15
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/analytics/entities/top', async (req: Request, res: Response) => {
   try {
@@ -340,8 +598,52 @@ router.get('/analytics/entities/top', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/profile/analytics/concepts/top?limit=10
- * Get top concepts by occurrence count
+ * @openapi
+ * /api/v1/profile/analytics/concepts/top:
+ *   get:
+ *     summary: Get top concepts
+ *     description: Retrieve top concepts ranked by occurrence count
+ *     tags:
+ *       - Profile
+ *       - Analytics
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Maximum number of concepts to return
+ *     responses:
+ *       200:
+ *         description: Top concepts list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 concepts:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       name:
+ *                         type: string
+ *                         example: Machine Learning
+ *                       occurrenceCount:
+ *                         type: integer
+ *                         example: 25
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/analytics/concepts/top', async (req: Request, res: Response) => {
   try {
@@ -372,8 +674,41 @@ router.get('/analytics/concepts/top', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/profile/analytics/content-types
- * Get content type distribution
+ * @openapi
+ * /api/v1/profile/analytics/content-types:
+ *   get:
+ *     summary: Get content type distribution
+ *     description: Retrieve distribution of bookmarks by content type
+ *     tags:
+ *       - Profile
+ *       - Analytics
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Content type distribution
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 distribution:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       type:
+ *                         type: string
+ *                         enum: [article, video, social, document, other]
+ *                         example: article
+ *                       count:
+ *                         type: integer
+ *                         example: 75
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/analytics/content-types', async (req: Request, res: Response) => {
   try {
@@ -408,8 +743,59 @@ router.get('/analytics/content-types', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/profile/analytics/activity/recent?limit=10
- * Get recent bookmarks
+ * @openapi
+ * /api/v1/profile/analytics/activity/recent:
+ *   get:
+ *     summary: Get recent activity
+ *     description: Retrieve recently created bookmarks
+ *     tags:
+ *       - Profile
+ *       - Analytics
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Maximum number of bookmarks to return
+ *     responses:
+ *       200:
+ *         description: Recent bookmarks list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 bookmarks:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       title:
+ *                         type: string
+ *                       url:
+ *                         type: string
+ *                         format: uri
+ *                       domain:
+ *                         type: string
+ *                       contentType:
+ *                         type: string
+ *                         enum: [article, video, social, document, other]
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/analytics/activity/recent', async (req: Request, res: Response) => {
   try {
