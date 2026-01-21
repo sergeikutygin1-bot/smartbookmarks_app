@@ -56,3 +56,112 @@ class Bookmark(Base):
 
     def __repr__(self):
         return f"<Bookmark(id={self.id}, title={self.title})>"
+
+
+class Entity(Base):
+    """
+    Entity model - matches Prisma Entity table.
+
+    Phase 2: Includes canonicalization fields (canonicalName, aliases, wikidataId, popularity).
+    """
+    __tablename__ = "entities"
+
+    # Primary key
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=lambda: str(__import__('uuid').uuid4()))
+
+    # User relationship
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Core fields
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    # Usage tracking
+    occurrence_count: Mapped[int] = mapped_column(nullable=False, default=1)
+
+    # Phase 2: Canonicalization fields (prepared for Phase 2.1)
+    canonical_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    aliases: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
+    wikidata_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    popularity: Mapped[int] = mapped_column(nullable=False, default=1)
+
+    # Entity metadata (renamed to avoid SQLAlchemy reserved name)
+    entity_metadata: Mapped[Optional[dict]] = mapped_column('metadata', JSON, nullable=True)
+
+    # Timestamps
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    def __repr__(self):
+        return f"<Entity(id={self.id}, name={self.name}, type={self.entity_type})>"
+
+
+class Concept(Base):
+    """
+    Concept model - matches Prisma Concept table.
+
+    Phase 2: Includes canonicalization fields (canonicalName, aliases, description, popularity).
+    """
+    __tablename__ = "concepts"
+
+    # Primary key
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=lambda: str(__import__('uuid').uuid4()))
+
+    # User relationship
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Core fields
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    # Hierarchy
+    parent_concept_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Usage tracking
+    occurrence_count: Mapped[int] = mapped_column(nullable=False, default=1)
+
+    # Phase 2: Canonicalization fields (prepared for Phase 2.1)
+    canonical_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    aliases: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    popularity: Mapped[int] = mapped_column(nullable=False, default=1)
+
+    # Timestamp
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    def __repr__(self):
+        return f"<Concept(id={self.id}, name={self.name})>"
+
+
+class Relationship(Base):
+    """
+    Relationship model - matches Prisma Relationship table.
+
+    Polymorphic relationships between all node types.
+    """
+    __tablename__ = "relationships"
+
+    # Primary key
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=lambda: str(__import__('uuid').uuid4()))
+
+    # User relationship
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Polymorphic source
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Polymorphic target
+    target_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Relationship metadata
+    relationship_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+
+    # Relationship metadata (renamed to avoid SQLAlchemy reserved name)
+    relationship_metadata: Mapped[Optional[dict]] = mapped_column('metadata', JSON, nullable=True)
+
+    def __repr__(self):
+        return f"<Relationship({self.source_type}:{self.source_id} --{self.relationship_type}-> {self.target_type}:{self.target_id})>"
