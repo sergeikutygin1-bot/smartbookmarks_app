@@ -27,32 +27,32 @@ class Bookmark(Base):
     __tablename__ = "bookmarks"
 
     # Primary key
-    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
 
     # User relationship
-    user_id: Mapped[str] = mapped_column("userId", UUID(as_uuid=False), nullable=False)
+    user_id: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Core fields
     url: Mapped[str] = mapped_column(Text, nullable=False)
-    title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    tags: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String), nullable=True)
+    # Note: tags are in separate bookmark_tags table, not updated by Python worker
 
     # Enrichment fields (Phase 1)
-    content_type: Mapped[Optional[str]] = mapped_column("contentType", String, nullable=True)
-    content_metrics: Mapped[Optional[dict]] = mapped_column("contentMetrics", JSON, nullable=True)
+    content_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    content_metrics: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # Embedding
     embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536), nullable=True)
 
     # Status tracking
-    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
 
     # Timestamps
-    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime, nullable=False, default=datetime.now)
-    updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime, nullable=False, default=datetime.now)
-    enriched_at: Mapped[Optional[datetime]] = mapped_column("enrichedAt", DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     def __repr__(self):
         return f"<Bookmark(id={self.id}, title={self.title})>"

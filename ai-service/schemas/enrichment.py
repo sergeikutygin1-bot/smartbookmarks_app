@@ -119,11 +119,13 @@ class AnalysisTrace(BaseModel):
 
 class EnrichmentJobData(BaseModel):
     """Job data passed from TypeScript API to Python worker."""
-    bookmark_id: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    bookmark_id: str = Field(alias="bookmarkId")
     url: str
-    extracted_content: ExtractedContent
-    user_tags: List[str] = Field(default_factory=list)
-    user_id: str
+    extracted_content: ExtractedContent = Field(alias="extractedContent")
+    user_tags: List[str] = Field(default_factory=list, alias="userTags")
+    user_id: str = Field(alias="userId")
 
 
 class EnrichmentResult(BaseModel):
