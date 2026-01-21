@@ -59,27 +59,35 @@ export async function verifyCsrfToken(
   next: NextFunction
 ): Promise<void> {
   try {
+    console.log(`[CSRF] ${req.method} ${req.path} - Starting verification`);
+
     // Skip CSRF for Bearer token authentication (API clients)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
+      console.log('[CSRF] Skipping - Bearer token detected');
       return next();
     }
 
     // Skip CSRF for safe HTTP methods
     const safeMethods = ['GET', 'HEAD', 'OPTIONS'];
     if (safeMethods.includes(req.method)) {
+      console.log(`[CSRF] Skipping - Safe method: ${req.method}`);
       return next();
     }
 
     // Require authentication for CSRF-protected routes
     if (!req.user?.id) {
+      console.log('[CSRF] ❌ Unauthorized - No user ID');
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
 
+    console.log(`[CSRF] Checking token for user: ${req.user.id}`);
+
     // Get CSRF token from header
     const token = req.headers['x-csrf-token'] as string;
     if (!token) {
+      console.log('[CSRF] ❌ Token missing from headers');
       res.status(403).json({
         error: 'CSRF token missing',
         message: 'Include X-CSRF-Token header in your request',
@@ -87,9 +95,12 @@ export async function verifyCsrfToken(
       return;
     }
 
+    console.log('[CSRF] Token present in headers');
+
     // Get secret for this user
     const secret = secretStore.get(req.user.id);
     if (!secret) {
+      console.log('[CSRF] ❌ No secret found for user');
       res.status(403).json({
         error: 'No CSRF secret found',
         message: 'Fetch a CSRF token first from /api/v1/auth/csrf-token',
@@ -97,9 +108,12 @@ export async function verifyCsrfToken(
       return;
     }
 
+    console.log('[CSRF] Secret found, verifying token...');
+
     // Verify token
     const valid = tokens.verify(secret, token);
     if (!valid) {
+      console.log('[CSRF] ❌ Token verification failed');
       res.status(403).json({
         error: 'Invalid CSRF token',
         message: 'CSRF token verification failed',
@@ -107,9 +121,11 @@ export async function verifyCsrfToken(
       return;
     }
 
+    console.log('[CSRF] ✅ Token verified successfully');
     // Token is valid, proceed
     next();
   } catch (error) {
+    console.error('[CSRF] Error:', error);
     next(error);
   }
 }

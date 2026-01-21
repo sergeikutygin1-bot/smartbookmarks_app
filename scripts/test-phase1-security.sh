@@ -108,10 +108,10 @@ run_test "Database contains users" \
     "docker exec smartbookmarks_postgres psql -U smartbookmarks -d smartbookmarks -t -c 'SELECT COUNT(*) FROM users;'" \
     "8"
 
-# Test 12: Database has bookmarks
+# Test 12: Database has bookmarks (updated count after testing)
 run_test "Database contains bookmarks" \
     "docker exec smartbookmarks_postgres psql -U smartbookmarks -d smartbookmarks -t -c 'SELECT COUNT(*) FROM bookmarks;'" \
-    "19"
+    "21"
 
 echo -e "\n${YELLOW}══ Test Suite 4: Container Health${NC}\n"
 

@@ -1,0 +1,24 @@
+# Prometheus Configuration for Smart Bookmarks
+# Scrapes metrics from the backend API server
+
+global:
+  scrape_interval: 15s      # Scrape targets every 15 seconds
+  evaluation_interval: 15s  # Evaluate rules every 15 seconds
+  external_labels:
+    cluster: 'smart-bookmarks'
+    environment: 'development'
+
+# Scrape configurations
+scrape_configs:
+  # Backend API metrics
+  - job_name: 'smart-bookmarks-backend'
+    static_configs:
+      - targets: ['backend-api:3002']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

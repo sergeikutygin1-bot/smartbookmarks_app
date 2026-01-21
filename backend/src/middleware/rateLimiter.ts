@@ -10,7 +10,7 @@
 
 import { RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible';
 import { Request, Response, NextFunction } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { createRedisConnection } from '../config/redis';
 
 // Redis client for rate limiting
@@ -164,8 +164,8 @@ export const authRateLimit = rateLimit({
  * General API Rate Limiter
  *
  * Limits:
- * - Authenticated users: 60 requests per minute
- * - Unauthenticated: 100 requests per minute (higher for public endpoints)
+ * - Authenticated users: 100 requests per minute (user-based)
+ * - Unauthenticated: 20 requests per minute (IP-based)
  *
  * Applies to: All API routes
  */
@@ -174,17 +174,22 @@ export const generalRateLimit = rateLimit({
 
   // Dynamic max based on authentication
   max: (req: Request) => {
-    return req.user ? 60 : 100;
+    return req.user ? 100 : 20;
   },
 
   standardHeaders: true,
   legacyHeaders: false,
 
-  // Use default IP-based key generator for simplicity
-  // For authenticated users, we rely on the enrichment rate limiter for stricter control
+  // User-based key generator for authenticated users, IP-based for unauthenticated
+  keyGenerator: (req: Request) => {
+    if (req.user?.id) {
+      return `user:${req.user.id}`;
+    }
+    return ipKeyGenerator(req);
+  },
 
   handler: (req: Request, res: Response) => {
-    const limit = req.user ? 60 : 100;
+    const limit = req.user ? 100 : 20;
     res.status(429).json({
       error: 'Too Many Requests',
       message: `Rate limit exceeded. You can make ${limit} requests per minute.`,
@@ -207,20 +212,34 @@ export const generalRateLimit = rateLimit({
 /**
  * Search Endpoint Rate Limiter
  *
- * Limits: 30 requests per minute per IP
+ * Limits:
+ * - Authenticated users: 60 requests per minute (user-based)
+ * - Unauthenticated: Blocked (search requires auth)
  *
- * Search is more expensive than reads, so lower limit
+ * Search is more expensive than reads, but cached aggressively
  */
 export const searchRateLimit = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+
+  max: (req: Request) => {
+    return req.user ? 60 : 0; // Block unauthenticated users
+  },
+
   standardHeaders: true,
   legacyHeaders: false,
+
+  // User-based key generator
+  keyGenerator: (req: Request) => {
+    if (req.user?.id) {
+      return `user:${req.user.id}:search`;
+    }
+    return ipKeyGenerator(req);
+  },
 
   handler: (req: Request, res: Response) => {
     res.status(429).json({
       error: 'Too Many Requests',
-      message: 'Search rate limit exceeded. You can search 30 times per minute.',
+      message: 'Search rate limit exceeded. You can search 60 times per minute.',
       retryAfter: 60,
     });
   },
@@ -229,20 +248,34 @@ export const searchRateLimit = rateLimit({
 /**
  * Write Operations Rate Limiter
  *
- * Limits: 30 requests per minute per IP
+ * Limits:
+ * - Authenticated users: 50 requests per minute (user-based)
+ * - Unauthenticated: Blocked (write requires auth)
  *
  * Applies to: POST, PATCH, DELETE on /api/bookmarks
  */
 export const writeRateLimit = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+
+  max: (req: Request) => {
+    return req.user ? 50 : 0; // Block unauthenticated users
+  },
+
   standardHeaders: true,
   legacyHeaders: false,
+
+  // User-based key generator
+  keyGenerator: (req: Request) => {
+    if (req.user?.id) {
+      return `user:${req.user.id}:write`;
+    }
+    return ipKeyGenerator(req);
+  },
 
   handler: (req: Request, res: Response) => {
     res.status(429).json({
       error: 'Too Many Requests',
-      message: 'Write rate limit exceeded. You can make 30 changes per minute.',
+      message: 'Write rate limit exceeded. You can make 50 changes per minute.',
       retryAfter: 60,
     });
   },

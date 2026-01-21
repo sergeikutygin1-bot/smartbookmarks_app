@@ -16,12 +16,84 @@ router.use(authMiddleware);
 router.use('/positions', projectionRouter);
 
 /**
- * GET /api/v1/graph/bookmarks/:id/related
- * Find related bookmarks (1-3 hop traversal)
- *
- * Query params:
- * - depth: Traversal depth (1-3, default: 2)
- * - limit: Max results (default: 20)
+ * @openapi
+ * /api/v1/graph/bookmarks/{id}/related:
+ *   get:
+ *     summary: Find related bookmarks
+ *     description: Find related bookmarks using 1-3 hop graph traversal via entities and concepts
+ *     tags:
+ *       - Knowledge Graph
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Bookmark ID
+ *       - in: query
+ *         name: depth
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 3
+ *           default: 2
+ *         description: Traversal depth (1-3 hops)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Maximum number of results
+ *     responses:
+ *       200:
+ *         description: Related bookmarks with entities and concepts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bookmarkId:
+ *                       type: string
+ *                       format: uuid
+ *                     related:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Bookmark'
+ *                     entities:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           entity:
+ *                             $ref: '#/components/schemas/Entity'
+ *                           weight:
+ *                             type: number
+ *                             description: Relationship strength (0-1)
+ *                     concepts:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           concept:
+ *                             $ref: '#/components/schemas/Concept'
+ *                           weight:
+ *                             type: number
+ *                             description: Relationship strength (0-1)
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
  */
 router.get('/bookmarks/:id/related', async (req: Request, res: Response) => {
   try {
@@ -111,12 +183,47 @@ router.get('/bookmarks/:id/related', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/graph/entities
- * List extracted entities with filters
- *
- * Query params:
- * - type: Filter by entity type (person, company, technology, product, location)
- * - limit: Max results (default: 50)
+ * @openapi
+ * /api/v1/graph/entities:
+ *   get:
+ *     summary: List entities
+ *     description: List all extracted entities with optional type filtering
+ *     tags:
+ *       - Knowledge Graph
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [person, company, technology, product, location]
+ *         description: Filter by entity type
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 200
+ *           default: 50
+ *         description: Maximum number of results
+ *     responses:
+ *       200:
+ *         description: List of entities
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Entity'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/entities', async (req: Request, res: Response) => {
   try {
@@ -143,11 +250,50 @@ router.get('/entities', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/graph/entities/:id/bookmarks
- * Get all bookmarks mentioning an entity
- *
- * Query params:
- * - limit: Max results (default: 50)
+ * @openapi
+ * /api/v1/graph/entities/{id}/bookmarks:
+ *   get:
+ *     summary: Get bookmarks for entity
+ *     description: Retrieve all bookmarks that mention a specific entity
+ *     tags:
+ *       - Knowledge Graph
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Entity ID
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 200
+ *           default: 50
+ *         description: Maximum number of results
+ *     responses:
+ *       200:
+ *         description: Bookmarks mentioning the entity
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Bookmark'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
  */
 router.get('/entities/:id/bookmarks', async (req: Request, res: Response) => {
   try {
@@ -173,11 +319,41 @@ router.get('/entities/:id/bookmarks', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/graph/concepts
- * List concepts with hierarchy
- *
- * Query params:
- * - limit: Max results (default: 100)
+ * @openapi
+ * /api/v1/graph/concepts:
+ *   get:
+ *     summary: List concepts
+ *     description: List all extracted concepts with hierarchical relationships
+ *     tags:
+ *       - Knowledge Graph
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 500
+ *           default: 100
+ *         description: Maximum number of results
+ *     responses:
+ *       200:
+ *         description: List of concepts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Concept'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/concepts', async (req: Request, res: Response) => {
   try {
@@ -203,11 +379,56 @@ router.get('/concepts', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/graph/concepts/:id/related
- * Find related concepts (via co-occurrence)
- *
- * Query params:
- * - minCoOccurrence: Minimum shared bookmarks (default: 2)
+ * @openapi
+ * /api/v1/graph/concepts/{id}/related:
+ *   get:
+ *     summary: Find related concepts
+ *     description: Find concepts related via co-occurrence in bookmarks
+ *     tags:
+ *       - Knowledge Graph
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Concept ID
+ *       - in: query
+ *         name: minCoOccurrence
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 2
+ *         description: Minimum number of shared bookmarks
+ *     responses:
+ *       200:
+ *         description: Related concepts
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     conceptId:
+ *                       type: string
+ *                       format: uuid
+ *                     related:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Concept'
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
  */
 router.get('/concepts/:id/related', async (req: Request, res: Response) => {
   try {
@@ -238,8 +459,41 @@ router.get('/concepts/:id/related', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/graph/stats
- * Get graph statistics for the user
+ * @openapi
+ * /api/v1/graph/stats:
+ *   get:
+ *     summary: Get graph statistics
+ *     description: Retrieve knowledge graph statistics for the authenticated user
+ *     tags:
+ *       - Knowledge Graph
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Graph statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalBookmarks:
+ *                       type: integer
+ *                     totalEntities:
+ *                       type: integer
+ *                     totalConcepts:
+ *                       type: integer
+ *                     totalRelationships:
+ *                       type: integer
+ *                     totalClusters:
+ *                       type: integer
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/stats', async (req: Request, res: Response) => {
   try {
@@ -258,8 +512,48 @@ router.get('/stats', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/v1/graph/bookmarks/:id/refresh
- * Trigger graph refresh for a specific bookmark
+ * @openapi
+ * /api/v1/graph/bookmarks/{id}/refresh:
+ *   post:
+ *     summary: Refresh bookmark graph
+ *     description: Trigger graph refresh for a specific bookmark (re-extract entities, concepts, relationships)
+ *     tags:
+ *       - Knowledge Graph
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Bookmark ID
+ *     responses:
+ *       200:
+ *         description: Graph refresh triggered
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     message:
+ *                       type: string
+ *                       example: Graph refresh queued for processing
+ *                     jobId:
+ *                       type: string
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       403:
+ *         $ref: '#/components/responses/ForbiddenError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
  */
 router.post('/bookmarks/:id/refresh', async (req: Request, res: Response) => {
   try {
@@ -280,8 +574,40 @@ router.post('/bookmarks/:id/refresh', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/graph/cache/stats
- * Get cache statistics for monitoring
+ * @openapi
+ * /api/v1/graph/cache/stats:
+ *   get:
+ *     summary: Get cache statistics
+ *     description: Retrieve cache performance statistics for monitoring (admin use)
+ *     tags:
+ *       - Knowledge Graph
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Cache statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalKeys:
+ *                       type: integer
+ *                       description: Total number of cached keys
+ *                     hitRate:
+ *                       type: number
+ *                       description: Cache hit rate (0-1)
+ *                     memoryUsage:
+ *                       type: string
+ *                       description: Memory usage in MB
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       500:
+ *         description: Server error
  */
 router.get('/cache/stats', async (req: Request, res: Response) => {
   try {

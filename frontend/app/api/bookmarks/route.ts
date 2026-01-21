@@ -21,12 +21,21 @@ export async function GET(request: NextRequest) {
       backendUrl.searchParams.append(key, value);
     });
 
+    console.log('[Frontend GET /api/bookmarks] Fetching from:', backendUrl.toString());
+    const headers = await getAuthHeaders(request);
+    console.log('[Frontend GET /api/bookmarks] Headers:', JSON.stringify(headers, null, 2));
+
     const response = await fetch(backendUrl.toString(), {
-      headers: await getAuthHeaders(request),
+      headers,
     });
 
+    console.log('[Frontend GET /api/bookmarks] Response status:', response.status);
+    console.log('[Frontend GET /api/bookmarks] Response headers:', Object.fromEntries(response.headers.entries()));
+
     if (!response.ok) {
-      throw new Error(`Backend returned ${response.status}`);
+      const responseText = await response.text();
+      console.log('[Frontend GET /api/bookmarks] Error response body:', responseText);
+      throw new Error(`Backend returned ${response.status}: ${responseText}`);
     }
 
     const data = await response.json();

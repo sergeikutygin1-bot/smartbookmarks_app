@@ -7,18 +7,118 @@ const API_BASE = '/api';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3002';
 
 /**
- * Authenticated fetch wrapper with automatic token refresh
+ * CSRF token cache
+ * Stores CSRF tokens in memory to avoid fetching on every request
+ */
+let csrfTokenCache: string | null = null;
+let csrfTokenExpiry: number = 0;
+
+/**
+ * Fetch CSRF token from backend
+ */
+async function fetchCsrfToken(): Promise<string | null> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/api/v1/auth/csrf-token`, {
+      credentials: 'include',
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('[API] CSRF token fetched successfully');
+      return data.csrfToken;
+    } else {
+      console.warn('[API] Failed to fetch CSRF token:', response.status);
+      return null;
+    }
+  } catch (error) {
+    console.error('[API] Error fetching CSRF token:', error);
+    return null;
+  }
+}
+
+/**
+ * Get CSRF token (cached for 10 minutes)
+ */
+async function getCsrfToken(): Promise<string | null> {
+  const now = Date.now();
+
+  // Return cached token if still valid (10 min TTL)
+  if (csrfTokenCache && csrfTokenExpiry > now) {
+    return csrfTokenCache;
+  }
+
+  // Fetch new token
+  const token = await fetchCsrfToken();
+  if (token) {
+    csrfTokenCache = token;
+    csrfTokenExpiry = now + 10 * 60 * 1000; // 10 minutes
+  }
+
+  return token;
+}
+
+/**
+ * Clear CSRF token cache (call on logout)
+ */
+export function clearCsrfToken(): void {
+  csrfTokenCache = null;
+  csrfTokenExpiry = 0;
+}
+
+/**
+ * Authenticated fetch wrapper with automatic token refresh and CSRF protection
  * Uses httpOnly cookies for authentication (XSS protection)
- * Falls back to Bearer header for backward compatibility
+ * Automatically includes CSRF tokens for POST/PATCH/DELETE requests
  */
 export async function authenticatedFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  // Try cookie-based auth first (new method)
+  const method = (options.method || 'GET').toUpperCase();
+  const needsCsrf = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method);
+
+  // Get CSRF token for state-changing requests
+  let csrfToken: string | null = null;
+  if (needsCsrf) {
+    csrfToken = await getCsrfToken();
+    if (!csrfToken) {
+      console.warn('[API] No CSRF token available for', method, url);
+    }
+  }
+
+  // Prepare headers with CSRF token
+  const headers = new Headers(options.headers);
+  if (csrfToken && needsCsrf) {
+    headers.set('X-CSRF-Token', csrfToken);
+    console.log('[API] Added CSRF token to request');
+  }
+
+  // Try request with cookies and CSRF token
   let response = await fetch(url, {
     ...options,
+    headers,
     credentials: 'include', // Send cookies automatically
   });
 
-  // If 401 Unauthorized, try to refresh
+  // If 403 Forbidden and CSRF token was used, token might be invalid - refresh it
+  if (response.status === 403 && needsCsrf) {
+    console.log('[API] CSRF token might be invalid, fetching new one...');
+
+    // Clear cache and get fresh token
+    csrfTokenCache = null;
+    csrfTokenExpiry = 0;
+    csrfToken = await getCsrfToken();
+
+    if (csrfToken) {
+      headers.set('X-CSRF-Token', csrfToken);
+
+      // Retry with fresh CSRF token
+      response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: 'include',
+      });
+    }
+  }
+
+  // If 401 Unauthorized, try to refresh access token
   if (response.status === 401) {
     console.log('[API] Access token expired, attempting refresh...');
 
@@ -32,14 +132,28 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
       if (refreshResponse.ok) {
         console.log('[API] Token refreshed successfully, retrying request');
 
+        // Get new CSRF token after refresh (old one is invalidated)
+        if (needsCsrf) {
+          csrfTokenCache = null;
+          csrfTokenExpiry = 0;
+          csrfToken = await getCsrfToken();
+          if (csrfToken) {
+            headers.set('X-CSRF-Token', csrfToken);
+          }
+        }
+
         // Retry the original request (new cookies are now set)
         response = await fetch(url, {
           ...options,
+          headers,
           credentials: 'include',
         });
       } else {
         // Refresh failed, redirect to login
         console.log('[API] Token refresh failed, redirecting to login');
+
+        // Clear CSRF token cache
+        clearCsrfToken();
 
         // Redirect to login page
         if (typeof window !== 'undefined') {
@@ -48,6 +162,9 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
       }
     } catch (error) {
       console.error('[API] Error refreshing token:', error);
+
+      // Clear CSRF token cache
+      clearCsrfToken();
 
       // Redirect to login page
       if (typeof window !== 'undefined') {
@@ -260,6 +377,9 @@ export const authApi = {
    * Logout (revoke refresh token)
    */
   async logout(): Promise<void> {
+    // Clear CSRF token cache
+    clearCsrfToken();
+
     // Use Next.js API proxy to ensure cookies are cleared on correct domain
     const response = await fetch('/api/auth/logout', {
       method: 'POST',
@@ -494,18 +614,29 @@ export const bookmarksApi = {
 
   /**
    * Watch enrichment status with automatic SSE → polling fallback
-   * Tries Server-Sent Events first for instant updates, falls back to polling if SSE unavailable
+   *
+   * NOTE: SSE is disabled because EventSource API doesn't support sending cookies
+   * for authentication in most browsers. Using polling instead, which is more
+   * reliable with cookie-based auth.
    *
    * @internal - Called by enrich() method
    */
   async watchEnrichmentStatus(jobId: string, signal?: AbortSignal): Promise<any> {
-    // Check if EventSource is supported in this environment
+    // SSE doesn't work with cookie-based auth (EventSource can't send credentials)
+    // Use polling instead - it's more reliable and works with httpOnly cookies
+    console.log('[API] Using polling for job status (SSE disabled due to cookie auth)');
+    return this.pollJobStatus(jobId, signal);
+
+    // SSE implementation disabled - kept for reference:
+    // The EventSource API doesn't support credentials (cookies) in standard browsers,
+    // so SSE connections fail authentication. Polling works reliably with cookie auth.
+
+    /* Original SSE attempt code (disabled):
     if (typeof EventSource === 'undefined') {
       console.log('[API] SSE not supported, using polling');
       return this.pollJobStatus(jobId, signal);
     }
 
-    // Try SSE first, fallback to polling on any error
     try {
       console.log('[API] Attempting SSE connection...');
       return await this.watchEnrichmentStatusSSE(jobId, signal);
@@ -514,6 +645,7 @@ export const bookmarksApi = {
       console.warn(`[API] SSE failed (${errorMessage}), falling back to polling`);
       return this.pollJobStatus(jobId, signal);
     }
+    */
   },
 
   /**

@@ -252,7 +252,7 @@ export function useGraphData() {
         // Step 1: Fetch bookmarks (only show completed/enriched bookmarks in graph)
         let bookmarkNodes: Node[] = [];
         if (filters.nodeTypes.includes('bookmarks')) {
-          const bookmarksResponse = await authenticatedFetch(`${BACKEND_URL}/api/bookmarks?limit=50&status=completed`);
+          const bookmarksResponse = await authenticatedFetch(`${BACKEND_URL}/api/v1/bookmarks?limit=50&status=completed`);
           if (bookmarksResponse.ok) {
             const bookmarksData = await bookmarksResponse.json();
             bookmarksData.data?.forEach((bookmark: any) => {

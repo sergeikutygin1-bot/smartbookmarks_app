@@ -9,7 +9,9 @@ const csrfTokenCache = new Map<string, string>();
  */
 async function fetchCsrfToken(accessToken: string): Promise<string | null> {
   try {
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002';
+    // Use BACKEND_URL for server-side requests (Docker internal network)
+    // Falls back to localhost for local development
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3002';
     const response = await fetch(`${backendUrl}/api/v1/auth/csrf-token`, {
       headers: {
         'Cookie': `accessToken=${accessToken}`,
