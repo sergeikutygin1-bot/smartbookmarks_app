@@ -4,7 +4,7 @@ EnrichmentAgent - Main orchestrator for the enrichment pipeline.
 Coordinates content classification, analysis, and embedding generation.
 Python equivalent of backend/src/workers/enrichmentWorker.ts logic.
 """
-from typing import List, Optional, Callable, Awaitable
+from typing import List, Optional, Callable, Awaitable, Any
 import time
 from datetime import datetime
 

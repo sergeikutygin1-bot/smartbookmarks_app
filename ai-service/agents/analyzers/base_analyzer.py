@@ -148,24 +148,22 @@ Return ONLY valid JSON matching the EnhancedAnalysisResult schema:
         start_time = time.time()
         timestamp = datetime.now()
 
-        # Initialize LLM with structured output
+        # Initialize LLM with JSON mode
         llm = ChatOpenAI(
             model=self.model_name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            max_retries=settings.LLM_MAX_RETRIES
+            max_retries=settings.LLM_MAX_RETRIES,
+            model_kwargs={"response_format": {"type": "json_object"}}
         )
-
-        # Use with_structured_output for Pydantic model
-        llm_with_structure = llm.with_structured_output(EnhancedAnalysisResult)
 
         # Create prompt template
         prompt_template = PromptTemplate.from_template(
             "{system_prompt}\n\n{user_prompt}"
         )
 
-        # Build chain
-        chain = RunnableSequence(prompt_template, llm_with_structure)
+        # Build simple chain (JSON parsing will be done manually)
+        chain = RunnableSequence(prompt_template, llm)
 
         # Format prompt for tracing
         prompt_text = await prompt_template.aformat(
@@ -175,25 +173,29 @@ Return ONLY valid JSON matching the EnhancedAnalysisResult schema:
 
         try:
             # Invoke chain
-            result = await chain.ainvoke({
+            response = await chain.ainvoke({
                 "system_prompt": system_prompt,
                 "user_prompt": user_prompt
             })
 
             duration_ms = int((time.time() - start_time) * 1000)
 
-            # Extract token usage from response metadata
-            # LangChain Python stores this in response.response_metadata
-            token_usage = TokenUsage(
-                prompt_tokens=getattr(result, 'usage_metadata', {}).get('input_tokens', 0) or 0,
-                completion_tokens=getattr(result, 'usage_metadata', {}).get('output_tokens', 0) or 0,
-                total_tokens=getattr(result, 'usage_metadata', {}).get('total_tokens', 0) or 0
-            )
+            # Parse JSON response from AIMessage
+            import json
+            content = response.content if hasattr(response, 'content') else str(response)
+            result_dict = json.loads(content)
 
-            # Estimate tokens if not available
+            # Convert to Pydantic model for validation
+            result = EnhancedAnalysisResult(**result_dict)
+
+            # Extract token usage from response metadata if available
+            usage_metadata = getattr(response, 'usage_metadata', None) or {}
+            token_usage = TokenUsage(
+                prompt_tokens=usage_metadata.get('input_tokens', 0) or len(prompt_text) // 4,
+                completion_tokens=usage_metadata.get('output_tokens', 0) or len(content) // 4,
+                total_tokens=usage_metadata.get('total_tokens', 0) or 0
+            )
             if token_usage.total_tokens == 0:
-                token_usage.prompt_tokens = len(prompt_text) // 4
-                token_usage.completion_tokens = len(str(result.dict())) // 4
                 token_usage.total_tokens = token_usage.prompt_tokens + token_usage.completion_tokens
 
             # Calculate cost

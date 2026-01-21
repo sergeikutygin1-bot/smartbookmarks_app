@@ -4,7 +4,7 @@ Pydantic schemas for enrichment data validation.
 These schemas mirror the TypeScript Zod schemas and define the contract
 between the TypeScript API and the Python worker.
 """
-from pydantic import BaseModel, Field, field_validator, confloat, constr
+from pydantic import BaseModel, ConfigDict, Field, field_validator, confloat, constr
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -71,6 +71,8 @@ class AnalyzerContext(BaseModel):
 
 class EnhancedAnalysisResult(BaseModel):
     """Analysis result from content-specific analyzer (LLM output schema)."""
+    model_config = ConfigDict(protected_namespaces=())
+
     title: constr(min_length=5, max_length=150)
     summary: constr(min_length=200, max_length=3500)
     tags: List[constr(min_length=1, max_length=50)] = Field(min_length=1, max_length=20)
