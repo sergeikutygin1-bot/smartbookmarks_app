@@ -145,7 +145,9 @@ async def main():
     try:
         # Keep worker running
         logger.info("[Worker] Listening for enrichment jobs...")
-        await broker.listen()
+        async for _ in broker.listen():
+            # Process tasks as they arrive
+            pass
     except KeyboardInterrupt:
         logger.info("[Worker] Shutting down gracefully...")
     finally:
