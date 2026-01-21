@@ -67,6 +67,103 @@ export const AnalysisResultSchema = z.object({
 });
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
 
+// ============================================================================
+// PHASE 1: Content-Type Specific Enrichment
+// ============================================================================
+
+/**
+ * Detected Content Type (Phase 1)
+ * More granular than extractor's ContentType
+ */
+export const DetectedContentType = z.enum([
+  "article", // News, blog posts, essays
+  "paper", // Scientific papers, academic research
+  "video", // YouTube, Vimeo, video platforms
+  "social", // Twitter, LinkedIn, short-form content
+  "document", // Technical docs, API docs, guides
+  "other", // Fallback
+]);
+export type DetectedContentType = z.infer<typeof DetectedContentType>;
+
+/**
+ * Content Type Classification Result (Phase 1)
+ * Output from ContentTypeClassifierAgent
+ */
+export const ContentTypeClassificationSchema = z.object({
+  type: DetectedContentType,
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe("Classification confidence (0-1)"),
+  method: z
+    .enum(["heuristic", "llm"])
+    .describe("How classification was determined"),
+  indicators: z
+    .object({
+      domain: z.string().optional(),
+      urlPatterns: z.array(z.string()).optional(),
+      htmlStructure: z.array(z.string()).optional(),
+    })
+    .optional()
+    .describe("Classification indicators/signals"),
+  metadata: z.record(z.unknown()).optional(),
+});
+export type ContentTypeClassification = z.infer<
+  typeof ContentTypeClassificationSchema
+>;
+
+/**
+ * Enhanced Analysis Result (Phase 1)
+ * Extends AnalysisResult with content-type specific fields
+ */
+export const EnhancedAnalysisResultSchema = AnalysisResultSchema.extend({
+  keyPoints: z
+    .array(z.string())
+    .min(3)
+    .max(10)
+    .describe("Bullet-point list of main ideas (3-10 points)"),
+  tone: z
+    .string()
+    .describe(
+      "Tone/style (e.g., formal, casual, technical, persuasive, neutral, opinionated)"
+    ),
+  contentMetrics: z.object({
+    readingLevel: z.number().describe("Flesch-Kincaid grade level"),
+    wordCount: z.number().describe("Word count of analyzed content"),
+    estimatedReadTime: z.number().describe("Minutes to read (at 200 wpm)"),
+  }),
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe("Analyzer confidence score (0-1)"),
+  modelUsed: z.string().describe("LLM model used for analysis"),
+});
+export type EnhancedAnalysisResult = z.infer<
+  typeof EnhancedAnalysisResultSchema
+>;
+
+/**
+ * Analyzer Context (Phase 1)
+ * Input passed to specialized analyzer agents
+ */
+export const AnalyzerContextSchema = z.object({
+  extractedContent: ExtractedContentSchema,
+  contentTypeClassification: ContentTypeClassificationSchema,
+  userContext: z
+    .object({
+      userTitle: z.string().optional(),
+      userSummary: z.string().optional(),
+      userTags: z.array(z.string()).optional(),
+    })
+    .optional()
+    .describe("User-provided context for merge strategy"),
+});
+export type AnalyzerContext = z.infer<typeof AnalyzerContextSchema>;
+
+// ============================================================================
+
 /**
  * Tagging Result Schema
  * Output from the tagging chain (LLM-generated)
@@ -183,7 +280,7 @@ export type JudgeResult = z.infer<typeof JudgeResultSchema>;
  * Error Types for graceful degradation
  */
 export const EnrichmentErrorSchema = z.object({
-  step: z.enum(["extraction", "analysis", "tagging", "embedding"]),
+  step: z.enum(["extraction", "classification", "analysis", "tagging", "embedding"]), // Added "classification" for Phase 1
   error: z.string(),
   timestamp: z.date(),
   recoverable: z.boolean(),
