@@ -50,11 +50,15 @@ model Bookmark {
   source           String?   @db.VarChar(255)
   summary          String?   @db.Text
   keyPoints        String[]  @map("key_points")
-  contentType      String    @default("other") @map("content_type") @db.VarChar(50)
-  status           String    @default("pending") @db.VarChar(50)
-  metadata         Json?     @db.JsonB
-  embedding        Unsupported("vector(1536)")?
-  searchVector     Unsupported("tsvector")?     @map("search_vector")
+  contentType           String    @default("other") @map("content_type") @db.VarChar(50)
+  detectedContentType   String?   @map("detected_content_type") @db.VarChar(20) // PHASE 1: article, paper, video, social, document, other
+  contentMetrics        Json?     @map("content_metrics") @db.JsonB // PHASE 1: { readingLevel, wordCount, estimatedReadTime, tone }
+  confidence            Float?    // PHASE 1: Overall enrichment confidence (0-1)
+  enrichmentVersion     Int       @default(1) @map("enrichment_version") // PHASE 1: Increment when re-enriching
+  status                String    @default("pending") @db.VarChar(50)
+  metadata              Json?     @db.JsonB
+  embedding             Unsupported("vector(1536)")?
+  searchVector          Unsupported("tsvector")?     @map("search_vector")
   centralityScore  Float     @default(0.0) @map("centrality_score")
   graphX           Float?    @map("graph_x")
   graphY           Float?    @map("graph_y")
@@ -71,6 +75,7 @@ model Bookmark {
   @@index([userId, contentType, updatedAt(sort: Desc)], name: "bookmarks_user_content_updated_idx")
   @@index([userId, status, updatedAt(sort: Desc)], name: "bookmarks_user_status_updated_idx")
   @@index([userId, centralityScore(sort: Desc)], name: "bookmarks_centrality_idx")
+  @@index([userId, detectedContentType], name: "bookmarks_detected_content_type_idx") // PHASE 1: Filter by detected type
   @@index([domain])
   @@index([status])
   @@map("bookmarks")
