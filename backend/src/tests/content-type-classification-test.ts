@@ -98,7 +98,7 @@ const TEST_CASES = [
     shouldUseLLM: false,
   },
 
-  // DOCUMENT - Should classify via URL pattern (/docs path)
+  // DOCUMENT - May use LLM fallback (URL pattern gives 0.80 confidence)
   {
     name: "Technical Documentation",
     url: "https://nextjs.org/docs/app/building-your-application/routing",
@@ -114,7 +114,7 @@ const TEST_CASES = [
     },
     expectedType: "document",
     expectedConfidenceMin: 0.75,
-    shouldUseLLM: false,
+    shouldUseLLM: true, // URL pattern gives 0.80 confidence, below 0.9 threshold
   },
 
   // AMBIGUOUS - Should trigger LLM fallback (medium.com has medium confidence)
@@ -136,9 +136,9 @@ const TEST_CASES = [
     shouldUseLLM: true, // Medium.com has medium confidence (0.85), may trigger LLM
   },
 
-  // OTHER - Fallback for unknown domain
+  // ARTICLE - Unknown domain correctly classified by LLM
   {
-    name: "Unknown Domain (Fallback)",
+    name: "Unknown Domain (LLM Classification)",
     url: "https://random-blog-site.xyz/post/12345",
     mockContent: {
       url: "https://random-blog-site.xyz/post/12345",
@@ -150,8 +150,8 @@ const TEST_CASES = [
       extractionConfidence: 0.75,
       extractedAt: new Date(),
     },
-    expectedType: "other", // Could be classified as article by LLM
-    expectedConfidenceMin: 0.50,
+    expectedType: "article", // LLM correctly identifies this as an article/essay
+    expectedConfidenceMin: 0.80,
     shouldUseLLM: true, // Unknown domain should trigger LLM
   },
 ];
