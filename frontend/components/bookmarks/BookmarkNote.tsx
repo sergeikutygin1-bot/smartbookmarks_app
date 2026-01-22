@@ -81,7 +81,8 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   useEffect(() => {
     const idChanged = prevIdRef.current !== bookmark.id;
     const enrichmentCompleted =
-      prevEnrichmentStatusRef.current === 'processing' &&
+      (prevEnrichmentStatusRef.current === 'processing' ||
+       prevEnrichmentStatusRef.current === 'processing-metadata') &&
       enrichmentStatus === 'success';
 
     const shouldSync = idChanged || enrichmentCompleted;
@@ -98,11 +99,6 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
         prevEnrichmentStatusRef.current = enrichmentStatus;
         return;
       }
-
-      console.log(
-        `[BookmarkNote] ✓ Syncing to bookmark: ${bookmark.id} ` +
-        `(ID changed: ${idChanged}, enrichment completed: ${enrichmentCompleted})`
-      );
 
       // Reset form with new bookmark data
       reset({
@@ -145,8 +141,6 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
     try {
       const enrichedBookmark = await enrichMutation.mutateAsync(bookmark.id);
 
-      console.log(`[BookmarkNote] Enrichment completed for: ${bookmark.id}`);
-
       // Only update form if this enrichment is for the CURRENTLY displayed bookmark
       if (enrichedBookmark.id === bookmark.id) {
         // Reset form with enriched data
@@ -163,8 +157,6 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
           },
         });
       } else {
-        console.log(`[BookmarkNote] Enrichment completed for ${enrichedBookmark.id}, but now viewing ${bookmark.id}. Skipping form update.`);
-
         toast.success("Enrichment completed in background", {
           description: "A bookmark was enriched while you were viewing another one.",
         });
@@ -174,7 +166,6 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
       const isAborted = error instanceof Error && error.name === 'AbortError';
 
       if (isAborted) {
-        console.log(`[BookmarkNote] Enrichment cancelled for: ${bookmark.id}`);
         return;
       }
 
@@ -221,6 +212,16 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
   // Determine save indicator text
   const getSaveIndicator = () => {
     if (isEnriching) {
+      // Show different messages for each phase
+      let message = 'Enriching with AI...';
+      if (enrichmentStatus === 'queued') {
+        message = 'Queued for enrichment...';
+      } else if (enrichmentStatus === 'processing') {
+        message = 'Enriching with AI...';
+      } else if (enrichmentStatus === 'processing-metadata') {
+        message = 'Extracting concepts and entities...';
+      }
+
       return (
         <motion.div
           initial={{ opacity: 0 }}
@@ -230,7 +231,7 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
           className="fixed top-4 right-6 text-sm font-medium text-primary pointer-events-none flex items-center gap-2"
         >
           <Loader2 className="h-4 w-4 animate-spin" />
-          {enrichmentStatus === 'queued' ? 'Queued for enrichment...' : 'Enriching with AI...'}
+          {message}
         </motion.div>
       );
     }
@@ -410,7 +411,7 @@ export function BookmarkNote({ bookmark }: BookmarkNoteProps) {
               {isEnriching ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Enriching...
+                  {enrichmentStatus === 'processing-metadata' ? 'Extracting...' : 'Enriching...'}
                 </>
               ) : (
                 <>

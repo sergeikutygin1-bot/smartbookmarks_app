@@ -6,35 +6,30 @@ generator client {
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
-  extensions = [pgvector(map: "vector")]
+  extensions = [vector]
 }
 
 model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  passwordHash  String?  @map("password_hash")
-  googleId      String?  @unique @map("google_id")
-  githubId      String?  @unique @map("github_id")
-  emailVerified Boolean  @default(false) @map("email_verified")
-  role          String   @default("user") @db.VarChar(20)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  // Email verification fields
-  verificationToken          String?   @map("verification_token")
-  verificationTokenExpiresAt DateTime? @map("verification_token_expires_at")
-
-  // Password reset fields
-  resetPasswordToken          String?   @map("reset_password_token")
-  resetPasswordTokenExpiresAt DateTime? @map("reset_password_token_expires_at")
-
-  bookmarks     Bookmark[]
-  tags          Tag[]
-  entities      Entity[]
-  concepts      Concept[]
-  relationships Relationship[]
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
+  id                          String         @id @default(uuid())
+  email                       String         @unique
+  passwordHash                String?        @map("password_hash")
+  googleId                    String?        @unique @map("google_id")
+  emailVerified               Boolean        @default(false) @map("email_verified")
+  createdAt                   DateTime       @default(now()) @map("created_at")
+  updatedAt                   DateTime       @updatedAt @map("updated_at")
+  githubId                    String?        @unique @map("github_id")
+  resetPasswordToken          String?        @map("reset_password_token")
+  resetPasswordTokenExpiresAt DateTime?      @map("reset_password_token_expires_at")
+  role                        String         @default("user") @db.VarChar(20)
+  verificationToken           String?        @map("verification_token")
+  verificationTokenExpiresAt  DateTime?      @map("verification_token_expires_at")
+  auditLogs                   AuditLog[]
+  bookmarks                   Bookmark[]
+  concepts                    Concept[]
+  entities                    Entity[]
+  refreshTokens               RefreshToken[]
+  relationships               Relationship[]
+  tags                        Tag[]
 
   @@index([verificationToken])
   @@index([resetPasswordToken])
@@ -42,75 +37,70 @@ model User {
 }
 
 model Bookmark {
-  id               String    @id @default(uuid())
-  userId           String    @map("user_id")
-  url              String
-  title            String    @db.VarChar(500)
-  domain           String    @db.VarChar(255)
-  source           String?   @db.VarChar(255)
-  summary          String?   @db.Text
-  keyPoints        String[]  @map("key_points")
-  contentType           String    @default("other") @map("content_type") @db.VarChar(50)
-  detectedContentType   String?   @map("detected_content_type") @db.VarChar(20) // PHASE 1: article, paper, video, social, document, other
-  contentMetrics        Json?     @map("content_metrics") @db.JsonB // PHASE 1: { readingLevel, wordCount, estimatedReadTime, tone }
-  confidence            Float?    // PHASE 1: Overall enrichment confidence (0-1)
-  enrichmentVersion     Int       @default(1) @map("enrichment_version") // PHASE 1: Increment when re-enriching
-  status                String    @default("pending") @db.VarChar(50)
-  metadata              Json?     @db.JsonB
-  embedding             Unsupported("vector(1536)")?
-  searchVector          Unsupported("tsvector")?     @map("search_vector")
-  centralityScore  Float     @default(0.0) @map("centrality_score")
-  graphX           Float?    @map("graph_x")
-  graphY           Float?    @map("graph_y")
-  graphPositionedAt DateTime? @map("graph_positioned_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  processedAt      DateTime? @map("processed_at")
-
-  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tags    BookmarkTag[]
+  id                  String                   @id @default(uuid())
+  userId              String                   @map("user_id")
+  url                 String
+  title               String                   @db.VarChar(500)
+  domain              String                   @db.VarChar(255)
+  source              String?                  @db.VarChar(255)
+  summary             String?
+  keyPoints           String[]                 @map("key_points")
+  contentType         String                   @default("other") @map("content_type") @db.VarChar(50)
+  status              String                   @default("pending") @db.VarChar(50)
+  metadata            Json?
+  embedding           Unsupported("vector")?
+  searchVector        Unsupported("tsvector")? @map("search_vector")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+  processedAt         DateTime?                @map("processed_at")
+  centralityScore     Float                    @default(0.0) @map("centrality_score")
+  graphPositionedAt   DateTime?                @map("graph_positioned_at")
+  graphX              Float?                   @map("graph_x")
+  graphY              Float?                   @map("graph_y")
+  confidence          Float?
+  contentMetrics      Json?                    @map("content_metrics")
+  detectedContentType String?                  @map("detected_content_type") @db.VarChar(20)
+  enrichmentVersion   Int                      @default(1) @map("enrichment_version")
+  tags                BookmarkTag[]
+  user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt(sort: Desc)])
-  @@index([userId, updatedAt(sort: Desc)], name: "bookmarks_user_id_updated_at_idx")
-  @@index([userId, contentType, updatedAt(sort: Desc)], name: "bookmarks_user_content_updated_idx")
-  @@index([userId, status, updatedAt(sort: Desc)], name: "bookmarks_user_status_updated_idx")
-  @@index([userId, centralityScore(sort: Desc)], name: "bookmarks_centrality_idx")
-  @@index([userId, detectedContentType], name: "bookmarks_detected_content_type_idx") // PHASE 1: Filter by detected type
+  @@index([userId, updatedAt(sort: Desc)])
+  @@index([userId, contentType, updatedAt(sort: Desc)], map: "bookmarks_user_content_updated_idx")
+  @@index([userId, status, updatedAt(sort: Desc)], map: "bookmarks_user_status_updated_idx")
+  @@index([userId, centralityScore(sort: Desc)], map: "bookmarks_centrality_idx")
+  @@index([userId, detectedContentType], map: "bookmarks_detected_content_type_idx")
   @@index([domain])
   @@index([status])
   @@map("bookmarks")
 }
 
 model Tag {
-  id             String   @id @default(uuid())
-  userId         String   @map("user_id")
-  name           String   @db.VarChar(100)
-  normalizedName String   @map("normalized_name") @db.VarChar(100)
-  color          String?  @db.VarChar(7)
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bookmarks BookmarkTag[]
+  id             String        @id @default(uuid())
+  userId         String        @map("user_id")
+  name           String        @db.VarChar(100)
+  normalizedName String        @map("normalized_name") @db.VarChar(100)
+  color          String?       @db.VarChar(7)
+  createdAt      DateTime      @default(now()) @map("created_at")
+  bookmarks      BookmarkTag[]
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, normalizedName])
   @@map("tags")
 }
 
 model BookmarkTag {
-  bookmarkId    String  @map("bookmark_id")
-  tagId         String  @map("tag_id")
-  autoGenerated Boolean @default(false) @map("auto_generated")
-
-  bookmark Bookmark @relation(fields: [bookmarkId], references: [id], onDelete: Cascade)
-  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  bookmarkId    String   @map("bookmark_id")
+  tagId         String   @map("tag_id")
+  autoGenerated Boolean  @default(false) @map("auto_generated")
+  bookmark      Bookmark @relation(fields: [bookmarkId], references: [id], onDelete: Cascade)
+  tag           Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([bookmarkId, tagId])
   @@index([tagId])
   @@index([bookmarkId])
   @@map("bookmark_tags")
 }
-
-// Knowledge Graph Models
 
 model Entity {
   id              String   @id @default(uuid())
@@ -119,37 +109,56 @@ model Entity {
   normalizedName  String   @map("normalized_name") @db.VarChar(255)
   entityType      String   @map("entity_type") @db.VarChar(50)
   occurrenceCount Int      @default(1) @map("occurrence_count")
-  metadata        Json?    @db.JsonB
+
+  // Phase 2: Canonicalization fields
+  canonicalName   String   @map("canonical_name") @db.VarChar(255)
+  aliases         String[] @default([])
+  wikidataId      String?  @map("wikidata_id") @db.VarChar(50)
+  popularity      Int      @default(1)
+
+  metadata        Json?
   firstSeenAt     DateTime @default(now()) @map("first_seen_at")
   lastSeenAt      DateTime @default(now()) @map("last_seen_at")
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, normalizedName, entityType])
-  @@index([userId, entityType], name: "entities_user_id_type_idx")
-  @@index([userId, occurrenceCount(sort: Desc)], name: "entities_occurrence_idx")
-  @@index([normalizedName], name: "entities_normalized_name_idx")
+  @@unique([userId, canonicalName, entityType], map: "entities_canonical_unique")
+  @@index([userId, entityType], map: "entities_user_id_type_idx")
+  @@index([userId, occurrenceCount(sort: Desc)], map: "entities_occurrence_idx")
+  @@index([normalizedName])
+  @@index([canonicalName], map: "entities_canonical_idx")
+  @@index([popularity(sort: Desc)], map: "entities_popularity_idx")
+  @@index([wikidataId], map: "entities_wikidata_idx")
   @@map("entities")
 }
 
 model Concept {
-  id              String                          @id @default(uuid())
-  userId          String                          @map("user_id")
-  name            String                          @db.VarChar(255)
-  normalizedName  String                          @map("normalized_name") @db.VarChar(255)
-  parentConceptId String?                         @map("parent_concept_id")
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  name            String    @db.VarChar(255)
+  normalizedName  String    @map("normalized_name") @db.VarChar(255)
+  parentConceptId String?   @map("parent_concept_id")
+  occurrenceCount Int       @default(1) @map("occurrence_count")
+
+  // Phase 2: Canonicalization fields
+  canonicalName   String    @map("canonical_name") @db.VarChar(255)
+  aliases         String[]  @default([])
+  description     String?   @db.Text
+  popularity      Int       @default(1)
+
+  // Phase 3 preview: Concept embeddings for semantic similarity
   embedding       Unsupported("vector(1536)")?
-  occurrenceCount Int                             @default(1) @map("occurrence_count")
-  createdAt       DateTime                        @default(now()) @map("created_at")
 
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parentConcept Concept?  @relation("ConceptHierarchy", fields: [parentConceptId], references: [id], onDelete: SetNull)
-  childConcepts Concept[] @relation("ConceptHierarchy")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  parentConcept   Concept?  @relation("ConceptHierarchy", fields: [parentConceptId], references: [id])
+  childConcepts   Concept[] @relation("ConceptHierarchy")
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, normalizedName])
-  @@index([userId], name: "concepts_user_id_idx")
-  @@index([parentConceptId], name: "concepts_parent_id_idx")
-  @@index([userId, occurrenceCount(sort: Desc)], name: "concepts_occurrence_idx")
+  @@unique([userId, canonicalName], map: "concepts_canonical_unique")
+  @@index([userId])
+  @@index([parentConceptId], map: "concepts_parent_id_idx")
+  @@index([userId, occurrenceCount(sort: Desc)], map: "concepts_occurrence_idx")
+  @@index([canonicalName], map: "concepts_canonical_idx")
+  @@index([popularity(sort: Desc)], map: "concepts_popularity_idx")
   @@map("concepts")
 }
 
@@ -162,17 +171,16 @@ model Relationship {
   targetId         String   @map("target_id")
   relationshipType String   @map("relationship_type") @db.VarChar(50)
   weight           Float    @default(1.0)
-  metadata         Json?    @db.JsonB
+  metadata         Json?
   createdAt        DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, sourceType, sourceId, targetType, targetId, relationshipType])
-  @@index([userId, sourceType, sourceId], name: "relationships_user_source_idx")
-  @@index([userId, targetType, targetId], name: "relationships_user_target_idx")
-  @@index([userId, relationshipType], name: "relationships_type_idx")
-  @@index([userId, relationshipType, weight(sort: Desc)], name: "relationships_weight_idx")
-  @@index([userId, sourceType, sourceId, targetType, targetId], name: "relationships_source_target_idx")
+  @@index([userId, sourceType, sourceId], map: "relationships_user_source_idx")
+  @@index([userId, targetType, targetId], map: "relationships_user_target_idx")
+  @@index([userId, relationshipType], map: "relationships_type_idx")
+  @@index([userId, relationshipType, weight(sort: Desc)], map: "relationships_weight_idx")
+  @@index([userId, sourceType, sourceId, targetType, targetId], map: "relationships_source_target_idx")
   @@map("relationships")
 }
 
@@ -182,8 +190,7 @@ model RefreshToken {
   token     String   @unique @db.VarChar(500)
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([token])
@@ -199,10 +206,9 @@ model AuditLog {
   success   Boolean
   ipAddress String?  @map("ip_address") @db.VarChar(45)
   userAgent String?  @map("user_agent") @db.VarChar(500)
-  metadata  Json?    @db.JsonB
+  metadata  Json?
   createdAt DateTime @default(now()) @map("created_at")
-
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user      User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([eventType])

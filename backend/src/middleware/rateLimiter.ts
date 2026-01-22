@@ -24,15 +24,15 @@ const redis = createRedisConnection();
  * AI Enrichment Rate Limiter (CRITICAL - Prevents Cost Abuse)
  *
  * Limits:
- * - 10 enrichments per hour per user
- * - 50 enrichments per day per user
+ * - 100 enrichments per hour per user (TEMPORARY - increased for testing)
+ * - 500 enrichments per day per user (TEMPORARY - increased for testing)
  *
  * Why strict: Each enrichment costs $0.01-0.05 in OpenAI API calls
  */
 const enrichmentHourlyLimiter = new RateLimiterRedis({
   storeClient: redis,
   keyPrefix: 'rl:enrich:hourly',
-  points: 10,           // 10 requests
+  points: 100,          // 100 requests (TEMPORARY)
   duration: 3600,       // per hour
   blockDuration: 600,   // block for 10 minutes if exceeded
 });
@@ -40,7 +40,7 @@ const enrichmentHourlyLimiter = new RateLimiterRedis({
 const enrichmentDailyLimiter = new RateLimiterRedis({
   storeClient: redis,
   keyPrefix: 'rl:enrich:daily',
-  points: 50,           // 50 requests
+  points: 500,          // 500 requests (TEMPORARY)
   duration: 86400,      // per day (24 hours)
   blockDuration: 3600,  // block for 1 hour if exceeded
 });
@@ -93,11 +93,11 @@ export async function enrichmentRateLimit(
   try {
     // Check hourly limit first (stricter)
     const hourlyResult = await enrichmentHourlyLimiter.consume(key, 1);
-    setRateLimitHeaders(res, hourlyResult, 10, 'hourly');
+    setRateLimitHeaders(res, hourlyResult, 100, 'hourly');
 
     // Check daily limit
     const dailyResult = await enrichmentDailyLimiter.consume(key, 1);
-    setRateLimitHeaders(res, dailyResult, 50, 'daily');
+    setRateLimitHeaders(res, dailyResult, 500, 'daily');
 
     next();
   } catch (error) {
@@ -107,7 +107,7 @@ export async function enrichmentRateLimit(
 
       res.set({
         'Retry-After': retryAfter.toString(),
-        'X-RateLimit-Limit': isHourly ? '10' : '50',
+        'X-RateLimit-Limit': isHourly ? '100' : '500',
         'X-RateLimit-Remaining': '0',
         'X-RateLimit-Window': isHourly ? 'hourly' : 'daily',
       });
@@ -115,10 +115,10 @@ export async function enrichmentRateLimit(
       res.status(429).json({
         error: 'Too Many Requests',
         message: isHourly
-          ? `Enrichment limit exceeded. You can enrich 10 URLs per hour. Try again in ${Math.ceil(retryAfter / 60)} minutes.`
-          : `Daily enrichment limit exceeded. You can enrich 50 URLs per day. Try again tomorrow.`,
+          ? `Enrichment limit exceeded. You can enrich 100 URLs per hour. Try again in ${Math.ceil(retryAfter / 60)} minutes.`
+          : `Daily enrichment limit exceeded. You can enrich 500 URLs per day. Try again tomorrow.`,
         retryAfter,
-        limit: isHourly ? 10 : 50,
+        limit: isHourly ? 100 : 500,
         window: isHourly ? 'hourly' : 'daily',
       });
     } else {
@@ -213,16 +213,17 @@ export const generalRateLimit = rateLimit({
  * Search Endpoint Rate Limiter
  *
  * Limits:
- * - Authenticated users: 60 requests per minute (user-based)
+ * - Authenticated users: 300 requests per minute (user-based)
  * - Unauthenticated: Blocked (search requires auth)
  *
- * Search is more expensive than reads, but cached aggressively
+ * Higher limit supports search-as-you-type (5 req/sec).
+ * Search is cached aggressively, so this is safe.
  */
 export const searchRateLimit = rateLimit({
   windowMs: 60 * 1000,
 
   max: (req: Request) => {
-    return req.user ? 60 : 0; // Block unauthenticated users
+    return req.user ? 300 : 0; // Block unauthenticated users
   },
 
   standardHeaders: true,
@@ -239,7 +240,7 @@ export const searchRateLimit = rateLimit({
   handler: (req: Request, res: Response) => {
     res.status(429).json({
       error: 'Too Many Requests',
-      message: 'Search rate limit exceeded. You can search 60 times per minute.',
+      message: 'Search rate limit exceeded. You can search 300 times per minute.',
       retryAfter: 60,
     });
   },

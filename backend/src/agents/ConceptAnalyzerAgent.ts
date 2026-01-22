@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import prisma from '../db/prisma';
 import dotenv from 'dotenv';
+import { CanonicalizationService } from '../services/CanonicalizationService';
+import { v4 as uuidv4 } from 'uuid';
 
 dotenv.config();
 
@@ -95,11 +97,13 @@ export class ConceptAnalyzerAgent {
     method: 'gpt';
     cost: number;
   }> {
-    const prompt = `Analyze this content and extract key concepts and topics. Focus on:
+    const prompt = `Analyze this content and extract ALL relevant concepts and topics. Be thorough and comprehensive. Focus on:
 
-**High-Level Topics**: Broad categories (e.g., "Machine Learning", "Web Development", "Psychology")
-**Subtopics**: More specific concepts (e.g., "Neural Networks", "React Hooks", "Cognitive Load")
-**Hierarchies**: Parent-child relationships (e.g., "React Hooks" is a subtopic of "Web Development")
+**High-Level Topics**: Broad categories (e.g., "Machine Learning", "Web Development", "Political Science", "International Relations")
+**Subtopics**: More specific concepts (e.g., "Neural Networks", "React Hooks", "Opposition Movements", "Geopolitical Strategy")
+**Domain-Specific Concepts**: Field-specific ideas, theories, methodologies
+**Thematic Concepts**: Key themes, issues, problems discussed
+**Hierarchies**: Parent-child relationships (e.g., "Opposition Strategy" → "Political Activism" → "Political Science")
 
 Content:
 """
@@ -111,22 +115,26 @@ Return a JSON object with:
 - hierarchy: Array showing parent-child relationships
 
 Guidelines:
-- Extract 3-8 concepts (don't over-extract)
+- Extract AT LEAST 5-10 concepts (be comprehensive, not conservative)
 - Focus on abstract topics, not concrete entities (people/companies are handled elsewhere)
 - Use clear, concise concept names (2-4 words max)
-- Identify hierarchies where applicable (e.g., "Deep Learning" → "Machine Learning" → "Artificial Intelligence")
+- Identify hierarchies where applicable
+- Include both broad themes AND specific subtopics
 - Assign relevance scores based on how central the concept is to the content
+- Capture the full intellectual landscape of the content
 
 Example format:
 {
   "concepts": [
-    {"name": "Machine Learning", "parent": null, "relevance": 0.95},
-    {"name": "Neural Networks", "parent": "Machine Learning", "relevance": 0.85},
-    {"name": "Deep Learning", "parent": "Neural Networks", "relevance": 0.80}
+    {"name": "Political Opposition", "parent": null, "relevance": 0.95},
+    {"name": "Civil Resistance", "parent": "Political Opposition", "relevance": 0.85},
+    {"name": "Authoritarian Regimes", "parent": null, "relevance": 0.90},
+    {"name": "Democratic Transitions", "parent": "Political Opposition", "relevance": 0.75},
+    {"name": "Strategic Communication", "parent": null, "relevance": 0.80}
   ],
   "hierarchy": [
-    {"parent": "Machine Learning", "children": ["Neural Networks"]},
-    {"parent": "Neural Networks", "children": ["Deep Learning"]}
+    {"parent": "Political Opposition", "children": ["Civil Resistance", "Democratic Transitions"]},
+    {"parent": "Authoritarian Regimes", "children": []}
   ]
 }`;
 
@@ -275,7 +283,8 @@ Example format:
   async saveConcepts(
     concepts: ExtractedConcept[],
     bookmarkId: string,
-    userId: string
+    userId: string,
+    embedding?: number[]
   ): Promise<void> {
     if (concepts.length === 0) {
       console.log(`[ConceptAnalyzer] No concepts to save for bookmark ${bookmarkId}`);
@@ -284,41 +293,125 @@ Example format:
 
     console.log(`[ConceptAnalyzer] Saving ${concepts.length} concepts for bookmark ${bookmarkId}`);
 
+    // DEDUPLICATION: Remove concepts that overlap with entities
+    // Entities are more specific (e.g., "React" as technology) than concepts (e.g., "React" as topic)
+    // So we prioritize entities and skip overlapping concepts to avoid redundancy
+    const entityRelationships = await prisma.relationship.findMany({
+      where: {
+        userId,
+        sourceType: 'bookmark',
+        sourceId: bookmarkId,
+        targetType: 'entity',
+      },
+    });
+
+    if (entityRelationships.length > 0) {
+      const entities = await prisma.entity.findMany({
+        where: {
+          id: { in: entityRelationships.map(rel => rel.targetId) },
+        },
+      });
+
+      // Create set of entity names (normalized lowercase) for fast lookup
+      const entityNames = new Set(
+        entities.flatMap(e => [
+          e.name.toLowerCase(),
+          e.canonicalName.toLowerCase(),
+          ...e.aliases.map(a => a.toLowerCase()),
+        ])
+      );
+
+      // Filter out concepts that match entity names
+      const beforeCount = concepts.length;
+      concepts = concepts.filter(concept => {
+        const conceptNormalized = concept.name.toLowerCase();
+        const isOverlap = entityNames.has(conceptNormalized);
+
+        if (isOverlap) {
+          console.log(
+            `[ConceptAnalyzer] ⚠️  Skipping concept "${concept.name}" - overlaps with entity`
+          );
+        }
+
+        return !isOverlap;
+      });
+
+      const removedCount = beforeCount - concepts.length;
+      if (removedCount > 0) {
+        console.log(
+          `[ConceptAnalyzer] ✓ Removed ${removedCount} overlapping concept(s), ${concepts.length} remain`
+        );
+      }
+    }
+
+    // If all concepts were filtered out, nothing left to save
+    if (concepts.length === 0) {
+      console.log(`[ConceptAnalyzer] No concepts to save after deduplication for bookmark ${bookmarkId}`);
+      return;
+    }
+
+    const canonicalService = new CanonicalizationService();
+
     // Two-pass approach:
     // Pass 1: Create all concepts (without parent references)
     // Pass 2: Update parent references
 
-    const createdConcepts = new Map<string, string>(); // normalizedName -> id
+    const createdConcepts = new Map<string, string>(); // canonicalName -> id
+    const conceptMap = new Map<string, any>(); // Store canonicalized concepts for parent mapping
 
-    // Pass 1: Create/update all concepts
+    // Pass 1: Create/update all concepts with canonicalization
     for (const concept of concepts) {
       try {
+        // Phase 2: Canonicalize concept before saving
+        const canonical = await canonicalService.resolveConcept(
+          concept.name,
+          '',  // Description will be added in Phase 3
+          embedding || null,
+          userId
+        );
+
+        // Add current mention to aliases
+        const aliases = new Set([...canonical.aliases, concept.name]);
+        if (concept.normalizedName) aliases.add(concept.normalizedName);
+
         const dbConcept = await prisma.concept.upsert({
           where: {
-            userId_normalizedName: {
+            userId_canonicalName: {
               userId,
-              normalizedName: concept.normalizedName,
+              canonicalName: canonical.canonicalName,
             },
           },
           create: {
+            id: canonical.id || uuidv4(),
             userId,
-            name: concept.name,
-            normalizedName: concept.normalizedName,
+            name: canonical.canonicalName, // Use canonical name
+            normalizedName: canonical.canonicalName.toLowerCase(),
+            canonicalName: canonical.canonicalName,
+            aliases: Array.from(aliases),
+            description: canonical.description,
+            popularity: 1,
             occurrenceCount: 1,
           },
           update: {
-            occurrenceCount: {
-              increment: 1,
-            },
-            // Update name if new version is different (keep most recent)
-            name: concept.name,
+            occurrenceCount: { increment: 1 },
+            popularity: { increment: 1 },
+            aliases: Array.from(aliases), // Merge aliases
+            description: canonical.description || undefined,
           },
         });
 
-        createdConcepts.set(concept.normalizedName, dbConcept.id);
+        console.log(
+          `[ConceptAnalyzer] ✓ Saved concept "${dbConcept.canonicalName}" (ID: ${dbConcept.id})`
+        );
+
+        createdConcepts.set(canonical.canonicalName, dbConcept.id);
+        conceptMap.set(concept.name, { canonical, dbConcept });
 
         // Create relationship: bookmark -> concept
-        await prisma.relationship.upsert({
+        console.log(
+          `[ConceptAnalyzer] Creating relationship: bookmark ${bookmarkId} -> concept ${dbConcept.id}`
+        );
+        const relationship = await prisma.relationship.upsert({
           where: {
             userId_sourceType_sourceId_targetType_targetId_relationshipType: {
               userId,
@@ -339,6 +432,7 @@ Example format:
             weight: concept.relevance,
             metadata: {
               confidence: concept.confidence,
+              canonicalMethod: canonical.method,
             },
           },
           update: {
@@ -348,6 +442,10 @@ Example format:
             },
           },
         });
+
+        console.log(
+          `[ConceptAnalyzer] ✓ Created relationship: bookmark ${bookmarkId} -> concept ${dbConcept.id} (relationship ID: ${relationship.id})`
+        );
       } catch (error) {
         console.error(
           `[ConceptAnalyzer] Failed to save concept ${concept.name}:`,
@@ -362,8 +460,21 @@ Example format:
       if (!concept.parentConcept) continue;
 
       try {
-        const childId = createdConcepts.get(concept.normalizedName);
-        const parentId = createdConcepts.get(concept.parentConcept);
+        // Get canonical child concept
+        const childData = conceptMap.get(concept.name);
+        if (!childData) continue;
+
+        const childId = childData.dbConcept.id;
+
+        // Canonicalize parent concept name to find its ID
+        const parentCanonical = await canonicalService.resolveConcept(
+          concept.parentConcept,
+          '',
+          embedding || null,
+          userId
+        );
+
+        const parentId = createdConcepts.get(parentCanonical.canonicalName);
 
         if (!childId || !parentId) {
           console.warn(
@@ -416,6 +527,9 @@ Example format:
         // Continue with other concepts even if one fails
       }
     }
+
+    // Cleanup canonicalization service
+    await canonicalService.disconnect();
 
     console.log(`[ConceptAnalyzer] ✓ Concepts saved successfully with hierarchy`);
   }

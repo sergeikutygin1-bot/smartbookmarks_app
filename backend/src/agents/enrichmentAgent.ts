@@ -322,6 +322,11 @@ export class EnrichmentAgent {
           // Retry once with adjusted temperature for better quality
           try {
             const retryStartTime = new Date();
+            const userContext = {
+              userTitle: options.userTitle,
+              userSummary: options.userSummary,
+              userTags: options.userTags,
+            };
             const { result: retryResult, trace: retryTrace } = await analyzeContentWithTrace(
               extractedContent,
               userContext,

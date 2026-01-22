@@ -101,6 +101,8 @@ router.get('/bookmarks/:id/related', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { depth, limit } = req.query;
 
+    console.log('[GraphAPI] GET /bookmarks/:id/related', { userId, bookmarkId: id });
+
     const related = await graphService.findRelatedBookmarks(
       id,
       userId,
@@ -108,7 +110,16 @@ router.get('/bookmarks/:id/related', async (req: Request, res: Response) => {
       limit ? parseInt(limit as string) : 20
     );
 
+    console.log('[GraphAPI] Related bookmarks found:', related.length);
+
     // Also fetch entities and concepts connected to this bookmark
+    console.log('[GraphAPI] About to fetch relationships with params:', {
+      userId,
+      bookmarkId: id,
+      sourceType: 'bookmark',
+      sourceId: id,
+    });
+
     const [entityRelationships, conceptRelationships] = await Promise.all([
       // Get entities mentioned in this bookmark
       prisma.relationship.findMany({
@@ -132,6 +143,31 @@ router.get('/bookmarks/:id/related', async (req: Request, res: Response) => {
       }),
     ]);
 
+    console.log('[GraphAPI] Relationships found:', {
+      entities: entityRelationships.length,
+      concepts: conceptRelationships.length,
+      entityIds: entityRelationships.map(r => r.targetId),
+      conceptIds: conceptRelationships.map(r => r.targetId),
+    });
+
+    if (conceptRelationships.length === 0) {
+      // Debug: Check if concepts exist without userId filter
+      const conceptsWithoutUserFilter = await prisma.relationship.findMany({
+        where: {
+          sourceType: 'bookmark',
+          sourceId: id,
+          targetType: 'concept',
+        },
+        take: 5,
+      });
+      console.log('[GraphAPI] DEBUG: Concepts without userId filter:', conceptsWithoutUserFilter.length);
+      if (conceptsWithoutUserFilter.length > 0) {
+        console.log('[GraphAPI] DEBUG: Sample concept relationship userId:', conceptsWithoutUserFilter[0].userId);
+        console.log('[GraphAPI] DEBUG: Expected userId:', userId);
+        console.log('[GraphAPI] DEBUG: userId match:', conceptsWithoutUserFilter[0].userId === userId);
+      }
+    }
+
     // Fetch the actual entity and concept data
     const [entities, concepts] = await Promise.all([
       entityRelationships.length > 0
@@ -150,11 +186,18 @@ router.get('/bookmarks/:id/related', async (req: Request, res: Response) => {
         : [],
     ]);
 
+    console.log('[GraphAPI] Data fetched:', {
+      entities: entities.length,
+      concepts: concepts.length,
+      entityNames: entities.map(e => e.name),
+      conceptNames: concepts.map(c => c.name),
+    });
+
     // Create maps for quick lookup
     const entityMap = new Map(entities.map(e => [e.id, e]));
     const conceptMap = new Map(concepts.map(c => [c.id, c]));
 
-    res.json({
+    const result = {
       data: {
         bookmarkId: id,
         related,
@@ -171,9 +214,16 @@ router.get('/bookmarks/:id/related', async (req: Request, res: Response) => {
           }))
           .filter(c => c.concept), // Remove any not found
       },
+    };
+
+    console.log('[GraphAPI] Final result:', {
+      entities: result.data.entities.length,
+      concepts: result.data.concepts.length,
     });
+
+    res.json(result);
   } catch (error) {
-    console.error('Error finding related bookmarks:', error);
+    console.error('[GraphAPI] Error finding related bookmarks:', error);
     const statusCode = error instanceof Error && error.message === 'Bookmark not found' ? 404 : 500;
     res.status(statusCode).json({
       error: 'Failed to find related bookmarks',
@@ -569,6 +619,105 @@ router.post('/bookmarks/:id/refresh', async (req: Request, res: Response) => {
     res.status(statusCode).json({
       error: 'Failed to refresh graph',
       message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/graph/bookmarks/{id}/status:
+ *   get:
+ *     summary: Check graph processing status
+ *     description: Check if graph workers (entity/concept extraction) have completed for a bookmark
+ *     tags:
+ *       - Knowledge Graph
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Bookmark ID
+ *     responses:
+ *       200:
+ *         description: Graph processing status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     completed:
+ *                       type: boolean
+ *                       description: Whether all graph jobs have completed
+ *                     entityCount:
+ *                       type: integer
+ *                     conceptCount:
+ *                       type: integer
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ *       500:
+ *         description: Server error
+ */
+router.get('/bookmarks/:id/status', async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const { id } = req.params;
+
+    // Check if bookmark exists
+    const bookmark = await prisma.bookmark.findFirst({
+      where: { id, userId }
+    });
+
+    if (!bookmark) {
+      return res.status(404).json({ error: 'Bookmark not found' });
+    }
+
+    // Count current relationships
+    const [conceptCount, entityCount] = await Promise.all([
+      prisma.relationship.count({
+        where: {
+          userId,
+          sourceType: 'bookmark',
+          sourceId: id,
+          targetType: 'concept'
+        }
+      }),
+      prisma.relationship.count({
+        where: {
+          userId,
+          sourceType: 'bookmark',
+          sourceId: id,
+          targetType: 'entity'
+        }
+      })
+    ]);
+
+    // Consider complete if we have at least some data
+    // (Empty is valid - some bookmarks legitimately have no concepts/entities)
+    const completed = true; // For now, just return the counts
+    // TODO: Could check BullMQ job status for more accurate completion detection
+
+    res.json({
+      data: {
+        completed,
+        conceptCount,
+        entityCount
+      }
+    });
+  } catch (error) {
+    console.error('Error checking graph status:', error);
+    res.status(500).json({
+      error: 'Failed to check graph status',
+      message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });

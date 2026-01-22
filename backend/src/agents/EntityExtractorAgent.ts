@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import prisma from '../db/prisma';
 import dotenv from 'dotenv';
+import { CanonicalizationService } from '../services/CanonicalizationService';
+import { v4 as uuidv4 } from 'uuid';
 
 dotenv.config();
 
@@ -99,12 +101,12 @@ export class EntityExtractorAgent {
     method: 'gpt';
     cost: number;
   }> {
-    const prompt = `Extract key entities from this content. Focus on:
-- **People**: Authors, experts, leaders, influential figures
-- **Companies**: Organizations, institutions, startups
-- **Technologies**: Frameworks, programming languages, tools, platforms (e.g., React, Python, PostgreSQL)
-- **Products**: Software products, services, apps
-- **Locations**: Cities, countries, regions (only if relevant to the topic)
+    const prompt = `Extract ALL named entities from this content. Be thorough and comprehensive. Focus on:
+- **People**: Authors, speakers, experts, leaders, influential figures, researchers, politicians
+- **Companies**: Organizations, institutions, government agencies, startups, corporations
+- **Technologies**: Frameworks, programming languages, tools, platforms, systems (e.g., React, Python, PostgreSQL)
+- **Products**: Software products, services, apps, platforms, tools
+- **Locations**: Cities, countries, regions, places (if mentioned)
 
 Content:
 """
@@ -116,8 +118,14 @@ Return a JSON array of entities. Each entity should have:
 - type: One of: person, company, technology, product, location
 - context: A brief snippet showing where it appears (max 50 chars)
 
-Only include entities that are clearly mentioned and relevant to the content's main topic.
-Avoid generic terms like "user", "system", "data" unless they're specific products/technologies.
+**IMPORTANT**: Extract AT LEAST 5-10 entities. Be comprehensive - include all:
+- Named people mentioned (even in passing)
+- Organizations and companies referenced
+- Technologies, frameworks, and tools discussed
+- Products and services mentioned
+- Geographic locations if relevant
+
+Avoid only generic terms like "user", "system", "data" unless they're specific products/technologies.
 
 Example format:
 [
@@ -348,37 +356,58 @@ Example format:
 
     console.log(`[EntityExtractor] Saving ${entities.length} entities for bookmark ${bookmarkId}`);
 
+    const canonicalService = new CanonicalizationService();
+
     // Process each entity
     for (const entity of entities) {
       try {
-        // Upsert entity (create or increment occurrence count)
+        // Phase 2: Canonicalize entity before saving
+        const canonical = await canonicalService.resolveEntity(
+          entity.text,
+          entity.type,
+          entity.context || '', // 200-char context snippet
+          userId
+        );
+
+        // Add current mention to aliases if not already present
+        const aliases = new Set([...canonical.aliases, entity.text]);
+        if (entity.normalizedName) aliases.add(entity.normalizedName);
+
+        // Upsert entity with canonical name
         const dbEntity = await prisma.entity.upsert({
           where: {
-            userId_normalizedName_entityType: {
+            userId_canonicalName_entityType: {
               userId,
-              normalizedName: entity.normalizedName,
+              canonicalName: canonical.canonicalName,
               entityType: entity.type,
             },
           },
           create: {
+            id: canonical.id || uuidv4(),
             userId,
-            name: entity.text,
-            normalizedName: entity.normalizedName,
+            name: canonical.canonicalName, // Use canonical name
+            normalizedName: canonical.canonicalName.toLowerCase(),
+            canonicalName: canonical.canonicalName,
             entityType: entity.type,
+            aliases: Array.from(aliases),
+            wikidataId: canonical.wikidataId,
+            popularity: 1,
             occurrenceCount: 1,
             metadata: {
               firstMentionContext: entity.context,
+              canonicalizationMethod: canonical.method,
+              canonicalizationConfidence: canonical.confidence,
             },
             firstSeenAt: new Date(),
             lastSeenAt: new Date(),
           },
           update: {
-            occurrenceCount: {
-              increment: 1,
-            },
+            occurrenceCount: { increment: 1 },
+            popularity: { increment: 1 },
             lastSeenAt: new Date(),
-            // Update name if the new mention is longer (more complete)
-            name: entity.text.length > 0 ? entity.text : undefined,
+            aliases: Array.from(aliases), // Merge aliases
+            // Update Wikidata ID if we didn't have one before
+            wikidataId: canonical.wikidataId || undefined,
           },
         });
 
@@ -405,6 +434,7 @@ Example format:
             metadata: {
               mentions: entity.mentions,
               context: entity.context,
+              canonicalMethod: canonical.method,
             },
           },
           update: {
@@ -423,6 +453,9 @@ Example format:
         // Continue with other entities even if one fails
       }
     }
+
+    // Cleanup canonicalization service
+    await canonicalService.disconnect();
 
     console.log(`[EntityExtractor] ✓ Entities saved successfully`);
   }
