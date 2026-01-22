@@ -141,7 +141,7 @@ Key benefit: catches errors at build time, not runtime."
 
 Provide structured evaluation:
 
-{{
+{{{{
   "accuracy": "pass" | "fail",
   "comprehensiveness": "pass" | "fail",
   "formatting": "pass" | "fail",
@@ -149,7 +149,7 @@ Provide structured evaluation:
   "overall_verdict": "pass" | "fail",
   "reasoning": "Brief explanation (2-3 sentences)",
   "issues": ["Specific issue 1", "Specific issue 2"]
-}}
+}}}}
 
 **Remember:** If completeness = "fail", overall_verdict MUST be "fail".
 
