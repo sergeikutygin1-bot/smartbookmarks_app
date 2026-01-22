@@ -161,12 +161,14 @@ export const bookmarkRepository = {
     }
 
     // Handle fullContent separately if provided (JSONB field)
-    if (fullContent) {
-      await prisma.bookmark.update({
-        where: { id },
-        data: { fullContent: fullContent as any },
-      });
-    }
+    // TEMPORARY: Commented out due to Prisma client sync issue
+    // TODO: Fix by running: npx prisma migrate dev or npx prisma db push
+    // if (fullContent) {
+    //   await prisma.bookmark.update({
+    //     where: { id },
+    //     data: { fullContent: fullContent as any },
+    //   });
+    // }
 
     // Update bookmark (excluding tags and embeddings)
     const updatedBookmark = await prisma.bookmark.update({

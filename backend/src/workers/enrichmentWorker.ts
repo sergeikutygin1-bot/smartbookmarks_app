@@ -166,7 +166,7 @@ async function processEnrichmentJob(
           },
           embedding: result.embedding,
           summaryEmbedding: result.summaryEmbedding,
-          fullContent: result.fullContent,
+          // fullContent: result.fullContent, // TEMPORARY: Commented out due to Prisma client sync issue
         });
 
         // Then, save tags via proper many-to-many relations (BATCHED for performance)

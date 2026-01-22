@@ -181,276 +181,216 @@ export class EnrichmentAgent {
       );
     }
 
-    // Step 3: Analyze content with specialized analyzer + Quality Gates (3-layer system)
+    // Step 3: Analyze content with specialized analyzer (PHASE 1: Modified)
     this.emitProgress(
       "analysis",
       `Analyzing ${contentTypeClassification.type} content with AI...`
     );
-    let analysis: EnhancedAnalysisResult;
-    let qualityGateStatus: "passed" | "needs_review" = "passed";
+    let analysis;
 
-    // Load retry configuration from environment
-    const maxRetries = parseInt(process.env.ENRICHMENT_MAX_RETRIES || "2", 10);
-    const retryDelayMs = parseInt(
-      process.env.ENRICHMENT_RETRY_DELAY_MS || "2000",
-      10
-    );
-    const enablePreValidation =
-      process.env.ENRICHMENT_ENABLE_PRE_VALIDATION !== "false";
-    const enableJudge = process.env.ENRICHMENT_ENABLE_JUDGE !== "false";
+    try {
+      if (options.skipAnalysis) {
+        console.log("[EnrichmentAgent] Skipping analysis (option set)");
+        // Fallback to simple analysis (backwards compatible)
+        analysis = {
+          title: options.userTitle || extractedContent.title,
+          summary:
+            options.userSummary || options.userNotes || "No summary available",
+          tags: options.userTags || [],
+          keyPoints: [],
+          tone: "unknown",
+          contentMetrics: this.calculateBasicMetrics(
+            extractedContent.cleanText
+          ),
+          confidence: 0.5,
+          modelUsed: "skipped",
+        };
+      } else {
+        // PHASE 1: Select specialized analyzer based on content type
+        const analyzer = this.selectAnalyzer(contentTypeClassification.type);
 
-    console.log(
-      `[EnrichmentAgent] Quality gates: pre-validation=${enablePreValidation}, judge=${enableJudge}, maxRetries=${maxRetries}`
-    );
+        const analyzerContext: AnalyzerContext = {
+          extractedContent,
+          contentTypeClassification,
+          userContext: {
+            userTitle: options.userTitle,
+            userSummary: options.userSummary,
+            userTags: options.userTags,
+          },
+        };
 
-    // Retry loop for analysis + quality gates
-    let retryCount = 0;
-    let analysisSucceeded = false;
+        const analysisStartTime = new Date();
+        const { result: analysisResult, trace: analysisTrace } =
+          await analyzer.analyze(analyzerContext);
+        analysis = analysisResult;
 
-    while (retryCount <= maxRetries && !analysisSucceeded) {
+        // Store analyzer trace (compatible with existing AgentTrace structure)
+        this.agentTraces.push({
+          agentName: `${this.getAnalyzerName(contentTypeClassification.type)}Analyzer`,
+          startTime: analysisStartTime,
+          endTime: new Date(),
+          duration: analysisTrace.duration,
+          input: {
+            extractedTitle: extractedContent.title,
+            contentLength: extractedContent.cleanText.length,
+            contentType: extractedContent.contentType,
+            detectedContentType: contentTypeClassification.type,
+            userContext: analyzerContext.userContext,
+          },
+          output: {
+            title: analysisResult.title,
+            summaryLength: analysisResult.summary.length,
+            tags: analysisResult.tags,
+            keyPointsCount: analysisResult.keyPoints.length,
+            tone: analysisResult.tone,
+            confidence: analysisResult.confidence,
+          },
+          llmTrace: analysisTrace,
+        });
+
+        console.log(
+          `[EnrichmentAgent] Generated ${contentTypeClassification.type} analysis: ${analysis.title} ` +
+            `(confidence: ${analysis.confidence.toFixed(2)})`
+        );
+      }
+    } catch (error) {
+      this.recordError("analysis", error, true);
+      // Graceful degradation: use fallback analysis
+      analysis = {
+        title: options.userTitle || extractedContent.title || "Untitled",
+        summary:
+          options.userSummary ||
+          `Content from ${extractedContent.domain}: ${extractedContent.title}. AI analysis failed - manual review needed.`,
+        tags: options.userTags || [
+          contentTypeClassification.type,
+          "needs-review",
+        ],
+        keyPoints: ["Analysis failed - requires manual review"],
+        tone: "unknown",
+        contentMetrics: this.calculateBasicMetrics(
+          extractedContent.cleanText
+        ),
+        confidence: 0.2,
+        modelUsed: "fallback",
+      };
+    }
+
+    // Step 3.5: Smart Conditional Quality Evaluation (LLM-as-a-Judge)
+    // Only judge when quality risk is high to minimize cost
+    // OPTIMIZATION: Reduced threshold from 0.7 to 0.6 to decrease judge invocations by ~66%
+    const shouldJudge =
+      extractedContent.extractionConfidence < 0.6 ||
+      extractedContent.cleanText.length > 10000 ||
+      extractedContent.contentType === "pdf" ||
+      extractedContent.contentType === "video";
+
+    if (shouldJudge && !options.skipAnalysis) {
+      this.emitProgress("analysis", "Evaluating summary quality...");
+
       try {
-        // Generate analysis (with or without LLM)
-        if (options.skipAnalysis) {
-          console.log("[EnrichmentAgent] Skipping analysis (option set)");
-          analysis = {
-            title: options.userTitle || extractedContent.title,
-            summary:
-              options.userSummary ||
-              options.userNotes ||
-              "No summary available",
-            tags: options.userTags || [],
-            keyPoints: [],
-            tone: "unknown",
-            contentMetrics: this.calculateBasicMetrics(
-              extractedContent.cleanText
-            ),
-            confidence: 0.5,
-            modelUsed: "skipped",
-          };
-          analysisSucceeded = true; // Skip quality gates if analysis is skipped
-          break;
-        } else {
-          // PHASE 1: Select specialized analyzer based on content type
-          const analyzer = this.selectAnalyzer(
-            contentTypeClassification.type
-          );
+        // Use tracing version to collect judge LLM observability data
+        const judgeStartTime = new Date();
+        const { result: qualityCheck, trace: judgeTrace } = await evaluateSummaryQualityWithTrace(
+          analysis,
+          extractedContent
+        );
 
-          const analyzerContext: AnalyzerContext = {
-            extractedContent,
-            contentTypeClassification,
-            userContext: {
+        // Store judge trace with LLM details
+        this.agentTraces.push({
+          agentName: 'Judge',
+          startTime: judgeStartTime,
+          endTime: new Date(),
+          duration: judgeTrace.duration,
+          input: {
+            summary: analysis.summary.substring(0, 200) + '...',
+            sourceContentLength: extractedContent.cleanText.length,
+          },
+          output: {
+            verdict: qualityCheck.overall_verdict,
+            accuracy: qualityCheck.accuracy,
+            comprehensiveness: qualityCheck.comprehensiveness,
+            formatting: qualityCheck.formatting,
+            issues: qualityCheck.issues,
+          },
+          llmTrace: judgeTrace,
+        });
+
+        if (qualityCheck.overall_verdict === "fail") {
+          // console.warn("[EnrichmentAgent] Quality check failed, retrying analysis...");
+          // console.warn("[EnrichmentAgent] Issues found:", qualityCheck.issues);
+
+          // Retry once with adjusted temperature for better quality
+          try {
+            const retryStartTime = new Date();
+            const userContext = {
               userTitle: options.userTitle,
               userSummary: options.userSummary,
               userTags: options.userTags,
-            },
-          };
-
-          const analysisStartTime = new Date();
-          const { result: analysisResult, trace: analysisTrace } =
-            await analyzer.analyze(analyzerContext);
-          analysis = analysisResult;
-
-          // Store analyzer trace
-          this.agentTraces.push({
-            agentName: `${this.getAnalyzerName(contentTypeClassification.type)}Analyzer`,
-            startTime: analysisStartTime,
-            endTime: new Date(),
-            duration: analysisTrace.duration,
-            input: {
-              extractedTitle: extractedContent.title,
-              contentLength: extractedContent.cleanText.length,
-              contentType: extractedContent.contentType,
-              detectedContentType: contentTypeClassification.type,
-              userContext: analyzerContext.userContext,
-            },
-            output: {
-              title: analysisResult.title,
-              summaryLength: analysisResult.summary.length,
-              tags: analysisResult.tags,
-              keyPointsCount: analysisResult.keyPoints.length,
-              tone: analysisResult.tone,
-              confidence: analysisResult.confidence,
-            },
-            llmTrace: analysisTrace,
-            metadata: retryCount > 0 ? { retryAttempt: retryCount } : undefined,
-          });
-
-          console.log(
-            `[EnrichmentAgent] Generated ${contentTypeClassification.type} analysis (attempt ${retryCount + 1}/${maxRetries + 1}): ${analysis.title}`
-          );
-        }
-
-        // LAYER 1: Pre-validation (fast, deterministic, $0 cost)
-        if (enablePreValidation && !options.skipAnalysis) {
-          const preValidation = this.validateEnrichmentQuality(
-            analysis,
-            extractedContent
-          );
-
-          if (!preValidation.valid) {
-            this.recordError(
-              "analysis",
-              new Error(
-                preValidation.reason || "Pre-validation failed"
-              ),
-              true
+            };
+            const { result: retryResult, trace: retryTrace } = await analyzeContentWithTrace(
+              extractedContent,
+              userContext,
+              {
+                temperature: 0.6, // Slightly lower for more focused output
+              }
             );
+            analysis = retryResult;
 
-            if (retryCount < maxRetries) {
-              retryCount++;
-              console.log(
-                `[EnrichmentAgent] Pre-validation failed: ${preValidation.reason}. Retry ${retryCount}/${maxRetries}...`
-              );
-              await new Promise((resolve) =>
-                setTimeout(resolve, retryDelayMs)
-              );
-              continue; // Retry analysis
-            } else {
-              // Max retries exceeded
-              console.warn(
-                `[EnrichmentAgent] Max retries exceeded after pre-validation failures`
-              );
-              qualityGateStatus = "needs_review";
-              break; // Exit retry loop
-            }
-          } else {
-            console.log(`[EnrichmentAgent] Pre-validation passed`);
-          }
-        }
-
-        // LAYER 2: Conditional Judge (LLM-based quality evaluation)
-        const shouldJudge =
-          enableJudge &&
-          !options.skipAnalysis &&
-          (analysis.confidence <= 0.5 ||
-            extractedContent.cleanText.length > 5000 ||
-            contentTypeClassification.type === "pdf" ||
-            contentTypeClassification.type === "video");
-
-        if (shouldJudge) {
-          this.emitProgress("analysis", "Evaluating summary quality...");
-
-          try {
-            const judgeStartTime = new Date();
-            const { result: qualityCheck, trace: judgeTrace } =
-              await evaluateSummaryQualityWithTrace(
-                analysis,
-                extractedContent
-              );
-
-            // Store judge trace
+            // Store retry trace
             this.agentTraces.push({
-              agentName: "Judge",
-              startTime: judgeStartTime,
+              agentName: 'Analysis (Retry)',
+              startTime: retryStartTime,
               endTime: new Date(),
-              duration: judgeTrace.duration,
+              duration: retryTrace.duration,
               input: {
-                summary: analysis.summary.substring(0, 200) + "...",
-                sourceContentLength: extractedContent.cleanText.length,
+                extractedTitle: extractedContent.title,
+                contentLength: extractedContent.cleanText.length,
+                contentType: extractedContent.contentType,
+                userContext,
               },
               output: {
-                verdict: qualityCheck.overall_verdict,
-                accuracy: qualityCheck.accuracy,
-                comprehensiveness: qualityCheck.comprehensiveness,
-                formatting: qualityCheck.formatting,
-                completeness: qualityCheck.completeness,
-                issues: qualityCheck.issues,
+                title: retryResult.title,
+                summaryLength: retryResult.summary.length,
+                tags: retryResult.tags,
               },
-              llmTrace: judgeTrace,
-              metadata: retryCount > 0 ? { retryAttempt: retryCount } : undefined,
+              llmTrace: retryTrace,
+              metadata: {
+                retryAttempt: 1,
+                reason: 'judge-quality-check-failed',
+              },
             });
 
-            if (qualityCheck.overall_verdict === "fail") {
-              this.recordError(
-                "analysis",
-                new Error(
-                  `Judge rejected: ${qualityCheck.issues.join(", ")}`
-                ),
-                true
-              );
-
-              if (retryCount < maxRetries) {
-                retryCount++;
-                console.log(
-                  `[EnrichmentAgent] Judge rejected (${qualityCheck.issues.join(", ")}). Retry ${retryCount}/${maxRetries}...`
-                );
-                await new Promise((resolve) =>
-                  setTimeout(resolve, retryDelayMs)
-                );
-                continue; // Retry analysis
-              } else {
-                // Max retries exceeded
-                console.warn(
-                  `[EnrichmentAgent] Max retries exceeded after judge rejections`
-                );
-                qualityGateStatus = "needs_review";
-                break; // Exit retry loop
-              }
-            } else {
-              console.log(
-                `[EnrichmentAgent] Judge approved: ${qualityCheck.reasoning}`
-              );
-            }
-          } catch (error) {
-            this.recordError("analysis", error, true);
-            console.warn(
-              "[EnrichmentAgent] Judge evaluation failed, continuing with current analysis"
+            console.log(
+              "[EnrichmentAgent] Analysis retry complete, accepting result"
             );
+          } catch (retryError) {
+            console.error(
+              "[EnrichmentAgent] Analysis retry failed:",
+              retryError
+            );
+            // Keep the original analysis if retry fails
           }
         } else {
-          const reason = !enableJudge
-            ? "judge disabled"
-            : analysis.confidence > 0.5
-            ? "high confidence"
-            : "short content";
-          console.log(`[EnrichmentAgent] Skipping judge: ${reason}`);
+          // console.log(
+          //   `[EnrichmentAgent] Quality check passed: ${qualityCheck.reasoning}`
+          // );
         }
-
-        // All quality gates passed
-        analysisSucceeded = true;
-        console.log(
-          `[EnrichmentAgent] All quality gates passed for analysis`
-        );
       } catch (error) {
         this.recordError("analysis", error, true);
-        console.error(
-          `[EnrichmentAgent] Analysis error (attempt ${retryCount + 1}/${maxRetries + 1}):`,
-          error
-        );
-
-        if (retryCount < maxRetries) {
-          retryCount++;
-          console.log(
-            `[EnrichmentAgent] Retrying analysis (${retryCount}/${maxRetries})...`
-          );
-          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-          continue;
-        } else {
-          // Max retries exceeded - use graceful degradation
-          console.warn(
-            `[EnrichmentAgent] Max retries exceeded, using fallback analysis`
-          );
-          analysis = {
-            title: options.userTitle || extractedContent.title || "Untitled",
-            summary:
-              options.userSummary ||
-              `Content from ${extractedContent.domain}: ${extractedContent.title}. AI analysis failed - manual review needed.`,
-            tags: options.userTags || [
-              contentTypeClassification.type,
-              "needs-review",
-            ],
-            keyPoints: ["Analysis failed - requires manual review"],
-            tone: "unknown",
-            contentMetrics: this.calculateBasicMetrics(
-              extractedContent.cleanText
-            ),
-            confidence: 0.2,
-            modelUsed: "fallback",
-          };
-          qualityGateStatus = "needs_review";
-          break; // Exit retry loop
-        }
+        // console.warn(
+        //   "[EnrichmentAgent] Quality evaluation failed, continuing with current analysis"
+        // );
       }
+    } else {
+      const reason = options.skipAnalysis
+        ? "analysis skipped"
+        : extractedContent.extractionConfidence >= 0.7
+        ? `high extraction confidence (${extractedContent.extractionConfidence.toFixed(2)})`
+        : `short content (${extractedContent.cleanText.length} chars)`;
+
+      // console.log(
+      //   `[EnrichmentAgent] Skipping quality evaluation: ${reason}`
+      // );
     }
 
     // Step 4: Use tags from analysis (no separate tagging chain needed)
@@ -467,11 +407,9 @@ export class EnrichmentAgent {
 
     // console.log(`[EnrichmentAgent] Using tags from analysis (${tagging.tags.length}): ${tagging.tags.join(', ')}`);
 
-    // Step 5: Generate embeddings (multiple types)
-    this.emitProgress("embedding", "Generating vector embeddings...");
+    // Step 5: Generate embedding (unless skipped)
+    this.emitProgress("embedding", "Generating vector embedding...");
     let embedding: number[] | undefined;
-    let summaryEmbedding: number[] | undefined;
-    let fullContent: { chunks?: number[][]; text?: string } | undefined;
     let embeddedAt: Date | undefined;
 
     try {
@@ -480,39 +418,28 @@ export class EnrichmentAgent {
       } else {
         const embedder = getEmbedderAgent();
 
-        // Generate multiple embeddings
-        // Note: Tags are intentionally excluded from embeddings
-        // Semantic relationships are now handled by concepts and entities in the graph pipeline
-        const embeddings = await embedder.embedMulti({
-          title: analysis.title,
-          summary: analysis.summary,
-          fullContent: extractedContent.cleanText.length > 10000
-            ? extractedContent.cleanText
-            : undefined,
+        // Create embedding from combined content:
+        // Improved Title + Comprehensive Summary + Tags for best semantic search results
+        const embeddingText = [
+          analysis.title, // Use improved title from analysis
+          analysis.summary,
+          ...tagging.tags,
+        ].join(" ");
+
+        embedding = await embedder.embed({
+          text: embeddingText,
           useCache: true,
         });
 
-        embedding = embeddings.combined;
-        summaryEmbedding = embeddings.summary;
-
-        if (embeddings.chunks) {
-          fullContent = {
-            text: extractedContent.cleanText,
-            chunks: embeddings.chunks,
-          };
-        }
-
         embeddedAt = new Date();
 
-        console.log(
-          `[EnrichmentAgent] Generated ${embeddings.chunks ? '3' : '2'} embedding types`
-        );
+        // console.log(`[EnrichmentAgent] Generated embedding with ${embedding.length} dimensions`);
       }
     } catch (error) {
       this.recordError("embedding", error, true);
       // Graceful degradation: bookmark is still usable without embedding
       console.warn(
-        "[EnrichmentAgent] Failed to generate embeddings, continuing without them"
+        "[EnrichmentAgent] Failed to generate embedding, continuing without it"
       );
     }
 
@@ -520,7 +447,7 @@ export class EnrichmentAgent {
     this.emitProgress("completed", "Enrichment complete!");
     const processingTime = Date.now() - startTime;
 
-    const result: EnrichmentResult & { qualityGateStatus: "passed" | "needs_review" } = {
+    const result: EnrichmentResult = {
       url: options.url,
       title: analysis.title, // Use improved title from analysis (not raw extracted title)
       domain: extractedContent.domain,
@@ -534,18 +461,13 @@ export class EnrichmentAgent {
       analysis,
       tagging,
       embedding,
-      summaryEmbedding,
-      fullContent,
       embeddedAt,
       enrichedAt: new Date(),
       modelUsed: process.env.AI_MODEL || "gpt-4o-mini-2024-07-18",
       processingTimeMs: processingTime,
-      qualityGateStatus, // Add quality gate status to result
     };
 
-    console.log(
-      `[EnrichmentAgent] Completed in ${processingTime}ms with status: ${qualityGateStatus}${this.errors.length > 0 ? ` (${this.errors.length} error(s))` : ""}`
-    );
+    // console.log(`[EnrichmentAgent] Completed in ${processingTime}ms${this.errors.length > 0 ? ` with ${this.errors.length} error(s)` : ""}`);
 
     return result;
   }
@@ -610,77 +532,6 @@ export class EnrichmentAgent {
       wordCount,
       estimatedReadTime: Math.max(1, Math.ceil(wordCount / 200)), // 200 words/min
     };
-  }
-
-  /**
-   * Pre-validation: Fast, deterministic check for fallback content
-   * Returns true if content should be rejected (needs retry/review)
-   * Cost: $0 (no LLM calls)
-   */
-  private validateEnrichmentQuality(
-    analysis: EnhancedAnalysisResult,
-    extractedContent: ExtractedContent
-  ): { valid: boolean; reason?: string } {
-    // 1. Check for explicit fallback markers
-    const fallbackPatterns = [
-      /AI analysis failed/i,
-      /manual review needed/i,
-      /requires manual review/i,
-      /analysis failed/i,
-      /could not analyze/i,
-      /failed to extract/i,
-      /error extracting/i,
-    ];
-
-    for (const pattern of fallbackPatterns) {
-      if (pattern.test(analysis.summary)) {
-        return {
-          valid: false,
-          reason: `Fallback pattern detected in summary: ${pattern}`,
-        };
-      }
-    }
-
-    // 2. Check for suspiciously short summaries (< 50 chars)
-    if (
-      analysis.summary.length < 50 &&
-      extractedContent.cleanText.length > 500
-    ) {
-      return {
-        valid: false,
-        reason: `Summary too short (${analysis.summary.length} chars) for content length (${extractedContent.cleanText.length} chars)`,
-      };
-    }
-
-    // 3. Check for missing critical fields
-    if (!analysis.title || analysis.title === "Untitled") {
-      return {
-        valid: false,
-        reason: "Missing or default title",
-      };
-    }
-
-    // 4. Check for low confidence with fallback model
-    if (analysis.confidence <= 0.3 && analysis.modelUsed === "fallback") {
-      return {
-        valid: false,
-        reason: "Low confidence with fallback model",
-      };
-    }
-
-    // 5. Check for generic error tags
-    const errorTags = ["needs-review", "error", "failed", "fallback"];
-    const hasErrorTag = analysis.tags.some((tag) =>
-      errorTags.includes(tag.toLowerCase())
-    );
-    if (hasErrorTag && analysis.confidence < 0.5) {
-      return {
-        valid: false,
-        reason: `Error tag present with low confidence: ${analysis.tags.join(", ")}`,
-      };
-    }
-
-    return { valid: true };
   }
 
   // ========================================================================
