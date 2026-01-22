@@ -165,6 +165,8 @@ async function processEnrichmentJob(
             contentLength: result.extractedContent?.cleanText?.length || 0,
           },
           embedding: result.embedding,
+          summaryEmbedding: result.summaryEmbedding,
+          fullContent: result.fullContent,
         });
 
         // Then, save tags via proper many-to-many relations (BATCHED for performance)

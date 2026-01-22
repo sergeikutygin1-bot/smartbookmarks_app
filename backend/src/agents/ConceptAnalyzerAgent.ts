@@ -528,10 +528,42 @@ Example format:
       }
     }
 
+    // Pass 3: Generate embeddings for new concepts
+    // Generate embeddings for concepts that don't have them yet
+    for (const concept of concepts) {
+      const canonical = conceptMap.get(concept.name)?.canonical;
+      if (!canonical) continue;
+
+      const conceptId = createdConcepts.get(canonical.canonicalName);
+      if (!conceptId) continue;
+
+      const dbConcept = await prisma.concept.findUnique({
+        where: { id: conceptId },
+        select: { embedding: true },
+      });
+
+      if (!dbConcept?.embedding) {
+        try {
+          const embedding = await this.generateConceptEmbedding(conceptId, userId);
+          if (embedding) {
+            const embeddingStr = `[${embedding.join(',')}]`;
+            await prisma.$executeRaw`
+              UPDATE concepts SET embedding = ${embeddingStr}::vector
+              WHERE id = ${conceptId}
+            `;
+            console.log(`[ConceptAnalyzer] ✓ Generated embedding for concept "${canonical.canonicalName}"`);
+          }
+        } catch (error) {
+          console.error(`[ConceptAnalyzer] Failed to generate concept embedding:`, error);
+          // Continue with other concepts even if embedding fails
+        }
+      }
+    }
+
     // Cleanup canonicalization service
     await canonicalService.disconnect();
 
-    console.log(`[ConceptAnalyzer] ✓ Concepts saved successfully with hierarchy`);
+    console.log(`[ConceptAnalyzer] ✓ Concepts saved successfully with hierarchy and embeddings`);
   }
 
   /**
@@ -627,5 +659,130 @@ Example format:
         weight: data.totalWeight / data.count, // Average weight
       };
     });
+  }
+
+  /**
+   * Generate embedding for a concept based on its definition
+   * Approach: Find top 3 bookmarks, extract summaries, embed definition
+   */
+  async generateConceptEmbedding(
+    conceptId: string,
+    userId: string
+  ): Promise<number[] | null> {
+    try {
+      // 1. Find top 3 bookmarks about this concept
+      const relationships = await prisma.relationship.findMany({
+        where: {
+          userId,
+          targetType: 'concept',
+          targetId: conceptId,
+          relationshipType: 'about',
+        },
+        orderBy: { weight: 'desc' },
+        take: 3,
+      });
+
+      if (relationships.length === 0) {
+        console.warn(`Cannot generate embedding for concept ${conceptId} - no bookmarks`);
+        return null;
+      }
+
+      // 2. Fetch bookmark summaries
+      const bookmarkIds = relationships.map(r => r.sourceId);
+      const bookmarks = await prisma.bookmark.findMany({
+        where: { id: { in: bookmarkIds } },
+        select: { title: true, summary: true },
+      });
+
+      // 3. Fetch concept details
+      const concept = await prisma.concept.findUnique({
+        where: { id: conceptId },
+      });
+
+      if (!concept) return null;
+
+      // 4. Build context-rich definition
+      const definition = bookmarks
+        .map(b => b.summary || b.title)
+        .filter(Boolean)
+        .join('\n\n');
+
+      // 5. Create embedding text
+      const embeddingText = `Concept: ${concept.canonicalName}\n\nContext: ${definition}`;
+
+      // 6. Generate embedding
+      const { getEmbedderAgent } = await import('./embedderAgent');
+      const embedder = getEmbedderAgent();
+      const embedding = await embedder.embed({ text: embeddingText, useCache: true });
+
+      console.log(`Generated embedding for concept "${concept.canonicalName}"`);
+      return embedding;
+    } catch (error) {
+      console.error(`Failed to generate concept embedding:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Batch generate embeddings for all concepts without embeddings
+   */
+  async batchGenerateConceptEmbeddings(
+    userId: string,
+    batchSize: number = 10
+  ): Promise<{ success: number; failed: number }> {
+    console.log(`Starting batch concept embedding for user ${userId}`);
+
+    // Use raw SQL to filter by vector field (Prisma can't filter Unsupported types)
+    const concepts = await prisma.$queryRaw<Array<{
+      id: string;
+      canonical_name: string;
+    }>>`
+      SELECT id, canonical_name
+      FROM concepts
+      WHERE user_id = ${userId} AND embedding IS NULL
+    `;
+
+    console.log(`Found ${concepts.length} concepts without embeddings`);
+
+    let success = 0;
+    let failed = 0;
+
+    // Process in batches
+    for (let i = 0; i < concepts.length; i += batchSize) {
+      const batch = concepts.slice(i, i + batchSize);
+
+      const results = await Promise.allSettled(
+        batch.map(async (concept) => {
+          const embedding = await this.generateConceptEmbedding(concept.id, userId);
+
+          if (embedding) {
+            const embeddingStr = `[${embedding.join(',')}]`;
+            await prisma.$executeRaw`
+              UPDATE concepts
+              SET embedding = ${embeddingStr}::vector
+              WHERE id = ${concept.id}
+            `;
+            return { success: true };
+          }
+          return { success: false };
+        })
+      );
+
+      results.forEach(r => {
+        if (r.status === 'fulfilled' && r.value.success) {
+          success++;
+        } else {
+          failed++;
+        }
+      });
+
+      // Rate limiting
+      if (i + batchSize < concepts.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    console.log(`Batch complete: ${success} success, ${failed} failed`);
+    return { success, failed };
   }
 }

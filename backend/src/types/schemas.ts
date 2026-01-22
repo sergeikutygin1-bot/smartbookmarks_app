@@ -200,12 +200,24 @@ export const EnrichmentResultSchema = z.object({
   analysis: AnalysisResultSchema,
   tagging: TaggingResultSchema,
 
-  // Vector embedding for semantic search (1536 dimensions)
+  // Vector embeddings for semantic search (1536 dimensions)
   embedding: z
     .array(z.number())
     .length(1536)
     .optional()
-    .describe("Vector embedding for semantic search"),
+    .describe("Combined vector embedding (title + summary + tags)"),
+  summaryEmbedding: z
+    .array(z.number())
+    .length(1536)
+    .optional()
+    .describe("Summary-only vector embedding (fallback for medium queries)"),
+  fullContent: z
+    .object({
+      text: z.string().optional(),
+      chunks: z.array(z.array(z.number()).length(1536)).optional(),
+    })
+    .optional()
+    .describe("Full content and optional chunk embeddings for very long documents"),
   embeddedAt: z.date().optional().describe("Timestamp when embedding was generated"),
 
   // Processing metadata

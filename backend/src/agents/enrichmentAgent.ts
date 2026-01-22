@@ -467,9 +467,11 @@ export class EnrichmentAgent {
 
     // console.log(`[EnrichmentAgent] Using tags from analysis (${tagging.tags.length}): ${tagging.tags.join(', ')}`);
 
-    // Step 5: Generate embedding (unless skipped)
-    this.emitProgress("embedding", "Generating vector embedding...");
+    // Step 5: Generate embeddings (multiple types)
+    this.emitProgress("embedding", "Generating vector embeddings...");
     let embedding: number[] | undefined;
+    let summaryEmbedding: number[] | undefined;
+    let fullContent: { chunks?: number[][]; text?: string } | undefined;
     let embeddedAt: Date | undefined;
 
     try {
@@ -478,28 +480,39 @@ export class EnrichmentAgent {
       } else {
         const embedder = getEmbedderAgent();
 
-        // Create embedding from combined content:
-        // Improved Title + Comprehensive Summary + Tags for best semantic search results
-        const embeddingText = [
-          analysis.title, // Use improved title from analysis
-          analysis.summary,
-          ...tagging.tags,
-        ].join(" ");
-
-        embedding = await embedder.embed({
-          text: embeddingText,
+        // Generate multiple embeddings
+        // Note: Tags are intentionally excluded from embeddings
+        // Semantic relationships are now handled by concepts and entities in the graph pipeline
+        const embeddings = await embedder.embedMulti({
+          title: analysis.title,
+          summary: analysis.summary,
+          fullContent: extractedContent.cleanText.length > 10000
+            ? extractedContent.cleanText
+            : undefined,
           useCache: true,
         });
 
+        embedding = embeddings.combined;
+        summaryEmbedding = embeddings.summary;
+
+        if (embeddings.chunks) {
+          fullContent = {
+            text: extractedContent.cleanText,
+            chunks: embeddings.chunks,
+          };
+        }
+
         embeddedAt = new Date();
 
-        // console.log(`[EnrichmentAgent] Generated embedding with ${embedding.length} dimensions`);
+        console.log(
+          `[EnrichmentAgent] Generated ${embeddings.chunks ? '3' : '2'} embedding types`
+        );
       }
     } catch (error) {
       this.recordError("embedding", error, true);
       // Graceful degradation: bookmark is still usable without embedding
       console.warn(
-        "[EnrichmentAgent] Failed to generate embedding, continuing without it"
+        "[EnrichmentAgent] Failed to generate embeddings, continuing without them"
       );
     }
 
@@ -521,6 +534,8 @@ export class EnrichmentAgent {
       analysis,
       tagging,
       embedding,
+      summaryEmbedding,
+      fullContent,
       embeddedAt,
       enrichedAt: new Date(),
       modelUsed: process.env.AI_MODEL || "gpt-4o-mini-2024-07-18",
