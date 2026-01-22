@@ -53,11 +53,38 @@ export interface PositionData {
 export class ProjectionAgent {
   private readonly MIN_BOOKMARKS_FOR_UMAP = 5;
   private readonly UMAP_TIMEOUT_MS = 15000; // 15 seconds
-  private readonly CANVAS_WIDTH = 4000;
-  private readonly CANVAS_HEIGHT = 3000;
-  private readonly CANVAS_PADDING = 200;
-  private readonly CONCEPT_RADIUS = 400; // Distance from bookmark (increased for better spacing)
-  private readonly ENTITY_RADIUS = 500; // Slightly farther than concepts
+
+  // Dynamic canvas sizing based on bookmark count
+  private readonly BASE_CANVAS_WIDTH = 6000;  // Increased from 4000
+  private readonly BASE_CANVAS_HEIGHT = 4500; // Increased from 3000
+  private readonly CANVAS_PADDING = 300; // Increased from 200
+
+  // Dynamic spacing that scales with bookmark count
+  private readonly BASE_CONCEPT_RADIUS = 800;  // Doubled from 400
+  private readonly BASE_ENTITY_RADIUS = 1000;  // Doubled from 500
+
+  /**
+   * Calculate dynamic canvas dimensions based on node count
+   */
+  private getDynamicCanvasDimensions(bookmarkCount: number): { width: number; height: number } {
+    // Scale canvas with bookmark count (sqrt scaling to balance space usage)
+    const scaleFactor = Math.sqrt(Math.max(bookmarkCount / 50, 1)); // 1x at 50 bookmarks, 1.4x at 100
+    return {
+      width: Math.round(this.BASE_CANVAS_WIDTH * scaleFactor),
+      height: Math.round(this.BASE_CANVAS_HEIGHT * scaleFactor),
+    };
+  }
+
+  /**
+   * Calculate dynamic radii based on bookmark count
+   */
+  private getDynamicRadii(bookmarkCount: number): { concept: number; entity: number } {
+    const scaleFactor = Math.max(bookmarkCount / 50, 1);
+    return {
+      concept: Math.round(this.BASE_CONCEPT_RADIUS * scaleFactor),
+      entity: Math.round(this.BASE_ENTITY_RADIUS * scaleFactor),
+    };
+  }
 
   /**
    * Main entry point - compute all positions for a user's graph
@@ -183,12 +210,12 @@ export class ProjectionAgent {
         throw new Error('Not enough valid embeddings for UMAP');
       }
 
-      // Initialize UMAP with parameters
+      // Initialize UMAP with aggressive spreading parameters
       const umap = new UMAP({
         nComponents: 2, // 2D output
-        nNeighbors: Math.min(15, validEmbeddings.length - 1), // Adaptive
-        minDist: 0.3, // Spacing between clusters (increased for better separation)
-        spread: 2.5, // Overall spread (increased for more spacing)
+        nNeighbors: Math.min(10, validEmbeddings.length - 1), // Reduced from 15 for more spreading
+        minDist: 1.2, // Much larger minimum spacing (was 0.6)
+        spread: 8.0, // Aggressive spread (was 4.5)
         nEpochs: 200, // Iterations (faster than default 400)
         random: seedrandom(userId), // Deterministic
       });
@@ -205,8 +232,9 @@ export class ProjectionAgent {
         return this.computeFallbackPositions(enrichedBookmarks);
       }
 
-      // Normalize to canvas coordinates
-      const normalized = this.normalizeToCanvas(projections);
+      // Normalize to canvas coordinates (dynamic sizing based on bookmark count)
+      const canvasDims = this.getDynamicCanvasDimensions(enrichedBookmarks.length);
+      const normalized = this.normalizeToCanvas(projections, canvasDims.width, canvasDims.height);
 
       // Map back to bookmark IDs
       return enrichedBookmarks.slice(0, validEmbeddings.length).map((bookmark, i) => ({
@@ -238,9 +266,9 @@ export class ProjectionAgent {
   }
 
   /**
-   * Normalize UMAP projections to canvas coordinates (4000x3000)
+   * Normalize UMAP projections to canvas coordinates (dynamic sizing)
    */
-  private normalizeToCanvas(projections: number[][]): number[][] {
+  private normalizeToCanvas(projections: number[][], canvasWidth: number, canvasHeight: number): number[][] {
     if (projections.length === 0) return [];
 
     // Find min/max for each dimension
@@ -256,15 +284,16 @@ export class ProjectionAgent {
     const xRange = xMax - xMin || 1;
     const yRange = yMax - yMin || 1;
 
+    console.log(`[ProjectionAgent] Canvas dimensions: ${canvasWidth}x${canvasHeight} (dynamic sizing)`);
     console.log(`[ProjectionAgent] UMAP raw range: X=[${xMin.toFixed(3)}, ${xMax.toFixed(3)}] (range: ${xRange.toFixed(3)}), Y=[${yMin.toFixed(3)}, ${yMax.toFixed(3)}] (range: ${yRange.toFixed(3)})`);
     console.log(`[ProjectionAgent] First 3 raw UMAP coords:`, projections.slice(0, 3).map(p => `[${p[0].toFixed(3)}, ${p[1].toFixed(3)}]`).join(', '));
 
     // Scale to canvas with padding
     const normalized = projections.map(([x, y]) => [
-      ((x - xMin) / xRange) * (this.CANVAS_WIDTH - 2 * this.CANVAS_PADDING) +
+      ((x - xMin) / xRange) * (canvasWidth - 2 * this.CANVAS_PADDING) +
         this.CANVAS_PADDING,
       ((y - yMin) / yRange) *
-        (this.CANVAS_HEIGHT - 2 * this.CANVAS_PADDING) +
+        (canvasHeight - 2 * this.CANVAS_PADDING) +
         this.CANVAS_PADDING,
     ]);
 
@@ -279,10 +308,11 @@ export class ProjectionAgent {
   private computeFallbackPositions(
     bookmarks: Array<{ id: string }>
   ): BookmarkPosition[] {
-    // Simple grid layout in center of canvas
-    const centerX = this.CANVAS_WIDTH / 2;
-    const centerY = this.CANVAS_HEIGHT / 2;
-    const gridSpacing = 200;
+    // Dynamic canvas sizing even for fallback
+    const canvasDims = this.getDynamicCanvasDimensions(bookmarks.length);
+    const centerX = canvasDims.width / 2;
+    const centerY = canvasDims.height / 2;
+    const gridSpacing = 400; // Increased from 200
     const cols = Math.ceil(Math.sqrt(bookmarks.length));
 
     return bookmarks.map((bookmark, i) => ({
@@ -367,9 +397,9 @@ export class ProjectionAgent {
       const x = weightedX / totalWeight;
       const y = weightedY / totalWeight;
 
-      // Add small jitter to avoid exact overlaps
-      const jitterX = (Math.random() - 0.5) * 100;
-      const jitterY = (Math.random() - 0.5) * 100;
+      // Add jitter to avoid overlaps and encourage spreading (increased from ±50px to ±150px)
+      const jitterX = (Math.random() - 0.5) * 300;
+      const jitterY = (Math.random() - 0.5) * 300;
 
       console.log(`[ProjectionAgent] Positioned bookmark ${newBookmark.id} near ${K} neighbors (avg similarity: ${(neighbors.reduce((sum, n) => sum + n.similarity, 0) / K).toFixed(3)})`);
 
@@ -486,12 +516,16 @@ export class ProjectionAgent {
       });
     }
 
+    // Calculate dynamic radii based on bookmark count
+    const dynamicRadii = this.getDynamicRadii(bookmarkPositions.size);
+    console.log(`[ProjectionAgent] Dynamic radii: concept=${dynamicRadii.concept}px, entity=${dynamicRadii.entity}px`);
+
     // Position concepts
     for (const [conceptId, connections] of conceptConnections) {
       const position = this.resolveMultiBookmarkPosition(
         connections,
         bookmarkPositions,
-        this.CONCEPT_RADIUS
+        dynamicRadii.concept
       );
       positionedConcepts.set(conceptId, position);
     }
@@ -501,17 +535,17 @@ export class ProjectionAgent {
       const position = this.resolveMultiBookmarkPosition(
         connections,
         bookmarkPositions,
-        this.ENTITY_RADIUS
+        dynamicRadii.entity
       );
       positionedEntities.set(entityId, position);
     }
 
-    // Apply collision detection to prevent overlaps
+    // Apply collision detection with larger minimum distance to prevent overlaps
     const allPositions = [
       ...Array.from(positionedConcepts.values()),
       ...Array.from(positionedEntities.values()),
     ];
-    this.applyCollisionDetection(allPositions);
+    this.applyCollisionDetection(allPositions, 300); // Increased from 100
 
     return {
       concepts: Array.from(positionedConcepts.entries()).map(([id, pos]) => ({
@@ -536,9 +570,12 @@ export class ProjectionAgent {
     bookmarkPositions: Map<string, Position>,
     radiusOffset: number
   ): Position {
+    // Calculate center from actual bookmark positions (more accurate than canvas center)
+    const fallbackCenter = this.calculatePositionCenter(bookmarkPositions);
+
     if (connections.length === 0) {
-      // Fallback: center of canvas
-      return { x: this.CANVAS_WIDTH / 2, y: this.CANVAS_HEIGHT / 2 };
+      // Fallback: center of all bookmarks
+      return fallbackCenter;
     }
 
     if (connections.length === 1) {
@@ -546,7 +583,7 @@ export class ProjectionAgent {
       const { bookmarkId } = connections[0];
       const bookmarkPos = bookmarkPositions.get(bookmarkId);
       if (!bookmarkPos) {
-        return { x: this.CANVAS_WIDTH / 2, y: this.CANVAS_HEIGHT / 2 };
+        return fallbackCenter;
       }
 
       // Random angle for variety
@@ -576,12 +613,34 @@ export class ProjectionAgent {
     }
 
     if (totalWeight === 0) {
-      return { x: this.CANVAS_WIDTH / 2, y: this.CANVAS_HEIGHT / 2 };
+      return fallbackCenter;
     }
 
     return {
       x: weightedX / totalWeight,
       y: weightedY / totalWeight,
+    };
+  }
+
+  /**
+   * Calculate the geometric center of all bookmark positions
+   */
+  private calculatePositionCenter(bookmarkPositions: Map<string, Position>): Position {
+    if (bookmarkPositions.size === 0) {
+      const canvasDims = this.getDynamicCanvasDimensions(50); // Default sizing
+      return { x: canvasDims.width / 2, y: canvasDims.height / 2 };
+    }
+
+    let sumX = 0;
+    let sumY = 0;
+    for (const pos of bookmarkPositions.values()) {
+      sumX += pos.x;
+      sumY += pos.y;
+    }
+
+    return {
+      x: sumX / bookmarkPositions.size,
+      y: sumY / bookmarkPositions.size,
     };
   }
 
@@ -597,9 +656,9 @@ export class ProjectionAgent {
         const dist = this.distance(positions[i], positions[j]);
 
         if (dist < minDistance && dist > 0) {
-          // Add jitter to second node
-          positions[j].x += (Math.random() - 0.5) * 50;
-          positions[j].y += (Math.random() - 0.5) * 50;
+          // Add larger jitter to second node to ensure separation
+          positions[j].x += (Math.random() - 0.5) * 200;
+          positions[j].y += (Math.random() - 0.5) * 200;
         }
       }
     }
