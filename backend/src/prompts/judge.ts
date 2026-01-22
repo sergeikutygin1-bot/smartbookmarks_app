@@ -4,10 +4,10 @@ import { PromptTemplate } from "@langchain/core/prompts";
  * JUDGE PROMPT - LLM-as-a-Judge for Summary Quality Evaluation
  *
  * This prompt evaluates AI-generated summaries on 4 key quality dimensions:
+ * - Accuracy: Is it factually consistent with the source? (highest priority)
  * - Comprehensiveness: Does it capture all key points?
- * - Accuracy: Is it factually consistent with the source?
- * - Formatting: Does it use proper markdown?
- * - Clarity: Is it well-organized and readable?
+ * - Formatting: Does it use proper markdown and clear organization?
+ * - Completeness: Does it provide meaningful insights without fallback/error content?
  *
  * Uses binary scoring (pass/fail) for consistency and reliability.
  * Temperature should be set to 0.0 for consistent evaluations.
@@ -19,10 +19,10 @@ import { PromptTemplate } from "@langchain/core/prompts";
  *
  * OUTPUT FORMAT (constrained by Zod schema):
  * {
- *   comprehensiveness: "pass" | "fail",
  *   accuracy: "pass" | "fail",
+ *   comprehensiveness: "pass" | "fail",
  *   formatting: "pass" | "fail",
- *   clarity: "pass" | "fail",
+ *   completeness: "pass" | "fail",
  *   overall_verdict: "pass" | "fail",
  *   reasoning: string,
  *   issues: string[]
@@ -88,22 +88,52 @@ Evaluate each independently. Overall verdict = PASS only if ALL criteria pass.
 - Verbose or repetitive
 - Minimal formatting (< 3 bold instances)
 
+### 4. COMPLETENESS (Critical Quality Gate)
+**Question:** Does the summary provide meaningful insights, not fallback/error content?
+
+**PASS if:**
+- Summary provides substantive analysis of the content
+- No error messages or fallback text (e.g., "AI analysis failed")
+- No generic placeholders (e.g., "Content from X: Y")
+- Actually summarizes the content substance, not just metadata
+- Not suspiciously short or template-like
+
+**FAIL if:**
+- Contains error messages or fallback patterns
+- Generic description without real insights (e.g., "An article about X")
+- Just restates the title or URL without analysis
+- Template-like or clearly incomplete content
+- Placeholder text indicating processing failure
+
+**CRITICAL:** If completeness = FAIL, the entire evaluation MUST be marked as failing,
+regardless of other scores. Incomplete or fallback content is unacceptable for production.
+
 ---
 
 ## CALIBRATION EXAMPLES
 
-**PASS Example:**
+**PASS Example (All 4 criteria):**
 "This article explores **type-first development** for **GraphQL APIs**...
 - **Schema-first approach**: Define types before resolvers
 - **Modular composition**: Break schemas into domain modules
 Key benefit: catches errors at build time, not runtime."
 
-(✓ Accurate, ✓ Comprehensive, ✓ Well-formatted)
+(✓ Accurate, ✓ Comprehensive, ✓ Well-formatted, ✓ Complete - substantive insights)
 
-**FAIL Example:**
+**FAIL Example 1 (Completeness failure - fallback text):**
+"Content from arxiv.org: Quantum Computing. AI analysis failed - manual review needed."
+
+(✗ Completeness FAIL - contains error message, no real summary)
+
+**FAIL Example 2 (Completeness failure - generic placeholder):**
+"An article about neural networks and AI from medium.com."
+
+(✓ Accurate, ✗ Not comprehensive, ✗ No formatting, ✗ Completeness FAIL - too generic)
+
+**FAIL Example 3 (Other criteria failure):**
 "GraphQL is a popular query language that many developers use. It has schemas and resolvers. Schema-first design is recommended by experts. It's good for APIs."
 
-(✓ Accurate, ✗ Not comprehensive - too vague, ✗ No formatting)
+(✓ Accurate, ✗ Not comprehensive - too vague, ✗ No formatting, ✓ Complete - but still fails overall)
 
 ---
 
@@ -115,9 +145,12 @@ Provide structured evaluation:
   "accuracy": "pass" | "fail",
   "comprehensiveness": "pass" | "fail",
   "formatting": "pass" | "fail",
+  "completeness": "pass" | "fail",
   "overall_verdict": "pass" | "fail",
   "reasoning": "Brief explanation (2-3 sentences)",
   "issues": ["Specific issue 1", "Specific issue 2"]
 }}
+
+**Remember:** If completeness = "fail", overall_verdict MUST be "fail".
 
 Be objective and consistent. Use the same standards for every evaluation.`);

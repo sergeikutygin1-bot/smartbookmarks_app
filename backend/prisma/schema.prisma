@@ -46,6 +46,11 @@ model Bookmark {
   summary             String?
   keyPoints           String[]                 @map("key_points")
   contentType         String                   @default("other") @map("content_type") @db.VarChar(50)
+  // Status values: "pending", "completed", "needs_review", "failed"
+  // - pending: Initial state, enrichment not started
+  // - completed: Successfully enriched, passed all quality gates
+  // - needs_review: Enrichment degraded (fallback content) or failed quality checks
+  // - failed: Permanent failure after max retries
   status              String                   @default("pending") @db.VarChar(50)
   metadata            Json?
   embedding           Unsupported("vector")?

@@ -29,13 +29,15 @@ export interface JudgeTrace {
  * Judge Chain - LLM-as-a-Judge for Summary Quality Evaluation
  *
  * Evaluates AI-generated summaries on 4 dimensions:
+ * - Accuracy: Factually consistent, no hallucinations (highest priority)
  * - Comprehensiveness: Captures all key points
- * - Accuracy: Factually consistent, no hallucinations
- * - Formatting: Proper markdown usage
- * - Clarity: Well-organized, logical flow
+ * - Formatting: Proper markdown usage and clear organization
+ * - Completeness: Not fallback/error content, provides meaningful insights
  *
  * Uses temperature 0.0 for consistent, reproducible judgments.
  * Returns structured output validated by Zod schema.
+ *
+ * CRITICAL: If completeness = "fail", the entire evaluation fails regardless of other scores.
  */
 
 interface JudgeChainConfig {
@@ -126,6 +128,15 @@ export async function evaluateSummaryQuality(
 
     // Validate the result
     const validated = JudgeResultSchema.parse(result);
+
+    // Enforce completeness as critical gate: if completeness fails, entire evaluation fails
+    if (validated.completeness === "fail") {
+      validated.overall_verdict = "fail";
+      if (!validated.issues.includes("Incomplete or fallback content")) {
+        validated.issues.push("Incomplete or fallback content");
+      }
+    }
+
     return validated;
   } catch (error) {
     console.error("[Judge] Evaluation failed:", error);
@@ -136,6 +147,7 @@ export async function evaluateSummaryQuality(
       accuracy: "pass",
       comprehensiveness: "pass",
       formatting: "pass",
+      completeness: "pass",
       overall_verdict: "pass",
       reasoning:
         "Judge evaluation failed due to technical error. Assuming quality is acceptable.",
@@ -207,6 +219,14 @@ export async function evaluateSummaryQualityWithTrace(
     // Validate result
     const validated = JudgeResultSchema.parse(result);
 
+    // Enforce completeness as critical gate: if completeness fails, entire evaluation fails
+    if (validated.completeness === "fail") {
+      validated.overall_verdict = "fail";
+      if (!validated.issues.includes("Incomplete or fallback content")) {
+        validated.issues.push("Incomplete or fallback content");
+      }
+    }
+
     // Build trace
     const trace: JudgeTrace = {
       model: opts.modelName,
@@ -233,6 +253,7 @@ export async function evaluateSummaryQualityWithTrace(
       accuracy: "pass",
       comprehensiveness: "pass",
       formatting: "pass",
+      completeness: "pass",
       overall_verdict: "pass",
       reasoning: "Judge evaluation failed due to technical error. Assuming quality is acceptable.",
       issues: ["judge-evaluation-error"],

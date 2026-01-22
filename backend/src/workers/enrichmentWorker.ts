@@ -95,8 +95,12 @@ async function processEnrichmentJob(
     // Collect detailed agent traces from enrichment agent
     const agentTraces = agent.getAgentTraces();
 
+    // Determine final status based on quality gates
+    const enrichmentQualityStatus = (result as any).qualityGateStatus || "passed";
+    const jobStatus = enrichmentQualityStatus === "needs_review" ? "needs_review" : "completed";
+
     // Update job execution with final result
-    jobExecution.status = 'completed';
+    jobExecution.status = jobStatus as any; // Allow "needs_review" in addition to "completed" and "failed"
     jobExecution.completedAt = new Date();
     jobExecution.totalDuration = processingTime;
     jobExecution.agentTraces = agentTraces; // Store detailed LLM traces
@@ -140,6 +144,14 @@ async function processEnrichmentJob(
     if (job.data.bookmarkId && job.data.userId) {
       console.log(`[Worker] 💾 Saving enrichment results to database for bookmark ${job.data.bookmarkId}`);
       try {
+        // Determine final status based on quality gates
+        // qualityGateStatus is added by enrichment agent's retry logic
+        const finalStatus = (result as any).qualityGateStatus === "needs_review"
+          ? "needs_review"
+          : "completed";
+
+        console.log(`[Worker] 📊 Quality gate status: ${finalStatus}`);
+
         // First, update bookmark metadata
         await bookmarkRepository.update(job.data.bookmarkId, job.data.userId, {
           title: result.title,
@@ -147,7 +159,7 @@ async function processEnrichmentJob(
           summary: result.analysis.summary,
           keyPoints: [], // TODO: Extract key points from analysis
           contentType: result.contentType,
-          status: 'completed',
+          status: finalStatus, // Use quality-gate aware status
           metadata: {
             extractedAt: new Date().toISOString(),
             contentLength: result.extractedContent?.cleanText?.length || 0,

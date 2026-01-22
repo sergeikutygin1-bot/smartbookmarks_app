@@ -247,10 +247,11 @@ export type EnrichmentOptions = z.infer<typeof EnrichmentOptionsSchema>;
  * Judge Result Schema
  * Output from the LLM-as-a-Judge quality evaluation
  *
- * Evaluates AI-generated summaries on 3 key dimensions:
+ * Evaluates AI-generated summaries on 4 key dimensions:
  * - Accuracy: Factually consistent, no hallucinations (highest priority)
  * - Comprehensiveness: Captures all key points
  * - Formatting: Proper markdown usage and clear organization (merged clarity + formatting)
+ * - Completeness: Not fallback/error content, provides meaningful insights
  */
 export const JudgeResultSchema = z.object({
   accuracy: z
@@ -262,6 +263,9 @@ export const JudgeResultSchema = z.object({
   formatting: z
     .enum(["pass", "fail"])
     .describe("Does it use proper markdown and have clear organization?"),
+  completeness: z
+    .enum(["pass", "fail"])
+    .describe("Does the summary provide meaningful insights without fallback/error content?"),
   overall_verdict: z
     .enum(["pass", "fail"])
     .describe("Overall quality verdict (pass only if all criteria pass)"),
