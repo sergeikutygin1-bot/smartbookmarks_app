@@ -1,8 +1,10 @@
 import OpenAI from 'openai';
 import prisma from '../db/prisma';
+import { Prisma } from '@prisma/client';
 import dotenv from 'dotenv';
 import { CanonicalizationService } from '../services/CanonicalizationService';
 import { v4 as uuidv4 } from 'uuid';
+import { AgentTrace } from '../services/jobStorage';
 
 dotenv.config();
 
@@ -56,11 +58,16 @@ export interface ConceptHierarchy {
  */
 export class ConceptAnalyzerAgent {
   private openai: OpenAI;
+  private agentTraces: AgentTrace[] = [];
 
   constructor() {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+  }
+
+  public getAgentTraces(): AgentTrace[] {
+    return this.agentTraces;
   }
 
   /**
@@ -97,6 +104,7 @@ export class ConceptAnalyzerAgent {
     method: 'gpt';
     cost: number;
   }> {
+    const startTime = new Date();
     const prompt = `Analyze this content and extract ALL relevant concepts and topics. Be thorough and comprehensive. Focus on:
 
 **High-Level Topics**: Broad categories (e.g., "Machine Learning", "Web Development", "Political Science", "International Relations")
@@ -152,7 +160,7 @@ Example format:
         },
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.2, // Low temperature for consistency
+      temperature: 0.1, // Near-determinism - minimal concept variation
       max_tokens: 800,
     });
 
@@ -181,10 +189,55 @@ Example format:
     );
 
     // Calculate cost
-    const cost = this.calculateCost(
-      response.usage?.prompt_tokens || 0,
-      response.usage?.completion_tokens || 0
-    );
+    const inputTokens = response.usage?.prompt_tokens || 0;
+    const outputTokens = response.usage?.completion_tokens || 0;
+    const cost = this.calculateCost(inputTokens, outputTokens);
+
+    // Create LLM trace for observability
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+
+    const inputCost = (inputTokens / 1_000_000) * 0.15;
+    const outputCost = (outputTokens / 1_000_000) * 0.6;
+
+    this.agentTraces.push({
+      agentName: 'ConceptAnalyzerAgent',
+      startTime,
+      endTime,
+      duration,
+      input: {
+        contentLength: content.length,
+        contentPreview: content.substring(0, 200) + '...',
+      },
+      output: {
+        conceptCount: concepts.length,
+        concepts: concepts.map(c => ({
+          name: c.name,
+          normalizedName: c.normalizedName,
+          parentConcept: c.parentConcept,
+          relevance: c.relevance
+        })),
+      },
+      llmTrace: {
+        model: 'gpt-4o-mini',
+        temperature: 0.1,
+        maxTokens: 800,
+        promptText: prompt.substring(0, 5000),
+        response: rawConcepts,
+        tokenUsage: {
+          promptTokens: inputTokens,
+          completionTokens: outputTokens,
+          totalTokens: inputTokens + outputTokens,
+        },
+        cost: {
+          inputCost,
+          outputCost,
+          totalCost: cost,
+        },
+        duration,
+        timestamp: endTime,
+      },
+    });
 
     return {
       concepts,
@@ -537,20 +590,23 @@ Example format:
       const conceptId = createdConcepts.get(canonical.canonicalName);
       if (!conceptId) continue;
 
-      const dbConcept = await prisma.concept.findUnique({
-        where: { id: conceptId },
-        select: { embedding: true },
-      });
+      // Check if concept has embedding using raw SQL (Prisma doesn't support Unsupported fields in select)
+      // Use $queryRawUnsafe to bypass Prisma's query parsing which causes type casting issues
+      const dbConcept = await prisma.$queryRawUnsafe<Array<{ has_embedding: boolean }>>(
+        'SELECT (embedding IS NOT NULL) as has_embedding FROM concepts WHERE id = $1 LIMIT 1',
+        conceptId
+      );
 
-      if (!dbConcept?.embedding) {
+      if (dbConcept.length === 0 || !dbConcept[0].has_embedding) {
         try {
           const embedding = await this.generateConceptEmbedding(conceptId, userId);
           if (embedding) {
             const embeddingStr = `[${embedding.join(',')}]`;
-            await prisma.$executeRaw`
-              UPDATE concepts SET embedding = ${embeddingStr}::vector
-              WHERE id = ${conceptId}
-            `;
+            await prisma.$executeRawUnsafe(
+              'UPDATE concepts SET embedding = $1::vector WHERE id = $2',
+              embeddingStr,
+              conceptId
+            );
             console.log(`[ConceptAnalyzer] ✓ Generated embedding for concept "${canonical.canonicalName}"`);
           }
         } catch (error) {
@@ -757,11 +813,11 @@ Example format:
 
           if (embedding) {
             const embeddingStr = `[${embedding.join(',')}]`;
-            await prisma.$executeRaw`
-              UPDATE concepts
-              SET embedding = ${embeddingStr}::vector
-              WHERE id = ${concept.id}
-            `;
+            await prisma.$executeRawUnsafe(
+              'UPDATE concepts SET embedding = $1::vector WHERE id = $2',
+              embeddingStr,
+              concept.id
+            );
             return { success: true };
           }
           return { success: false };

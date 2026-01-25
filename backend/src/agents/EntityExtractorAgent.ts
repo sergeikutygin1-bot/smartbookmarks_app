@@ -3,6 +3,7 @@ import prisma from '../db/prisma';
 import dotenv from 'dotenv';
 import { CanonicalizationService } from '../services/CanonicalizationService';
 import { v4 as uuidv4 } from 'uuid';
+import { AgentTrace } from '../services/jobStorage';
 
 dotenv.config();
 
@@ -61,11 +62,16 @@ export interface EntityExtractionResult {
  */
 export class EntityExtractorAgent {
   private openai: OpenAI;
+  private agentTraces: AgentTrace[] = [];
 
   constructor() {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+  }
+
+  public getAgentTraces(): AgentTrace[] {
+    return this.agentTraces;
   }
 
   /**
@@ -101,6 +107,7 @@ export class EntityExtractorAgent {
     method: 'gpt';
     cost: number;
   }> {
+    const startTime = new Date();
     const prompt = `Extract ALL named entities from this content. Be thorough and comprehensive. Focus on:
 - **People**: Authors, speakers, experts, leaders, influential figures, researchers, politicians
 - **Companies**: Organizations, institutions, government agencies, startups, corporations
@@ -147,7 +154,7 @@ Example format:
         },
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.1, // Low temperature for consistency
+      temperature: 0.0, // Pure determinism - same entities every time
       max_tokens: 1000,
     });
 
@@ -175,10 +182,54 @@ Example format:
     );
 
     // Calculate cost
-    const cost = this.calculateCost(
-      response.usage?.prompt_tokens || 0,
-      response.usage?.completion_tokens || 0
-    );
+    const inputTokens = response.usage?.prompt_tokens || 0;
+    const outputTokens = response.usage?.completion_tokens || 0;
+    const cost = this.calculateCost(inputTokens, outputTokens);
+
+    // Create LLM trace for observability
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+
+    const inputCost = (inputTokens / 1_000_000) * 0.15;
+    const outputCost = (outputTokens / 1_000_000) * 0.6;
+
+    this.agentTraces.push({
+      agentName: 'EntityExtractorAgent',
+      startTime,
+      endTime,
+      duration,
+      input: {
+        contentLength: content.length,
+        contentPreview: content.substring(0, 200) + '...',
+      },
+      output: {
+        entityCount: entities.length,
+        entities: entities.map(e => ({
+          name: e.text,
+          type: e.type,
+          normalizedName: e.normalizedName
+        })),
+      },
+      llmTrace: {
+        model: 'gpt-4o-mini',
+        temperature: 0.0,
+        maxTokens: 1000,
+        promptText: prompt.substring(0, 5000),
+        response: rawEntities,
+        tokenUsage: {
+          promptTokens: inputTokens,
+          completionTokens: outputTokens,
+          totalTokens: inputTokens + outputTokens,
+        },
+        cost: {
+          inputCost,
+          outputCost,
+          totalCost: cost,
+        },
+        duration,
+        timestamp: endTime,
+      },
+    });
 
     return {
       entities,

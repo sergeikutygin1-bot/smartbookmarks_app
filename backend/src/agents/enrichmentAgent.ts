@@ -331,7 +331,7 @@ export class EnrichmentAgent {
               extractedContent,
               userContext,
               {
-                temperature: 0.6, // Slightly lower for more focused output
+                temperature: 0.3, // Lower temp on retry for more deterministic, consistent results
               }
             );
             analysis = retryResult;
