@@ -8,6 +8,7 @@ import { enrichmentQueue } from '../queues/enrichmentQueue';
 import { enrichmentRateLimit } from '../middleware/rateLimiter';
 import { checkDailyBudget } from '../middleware/costControl';
 import { logger } from '../services/logger';
+import { prisma } from '../db/prisma';
 
 const router = express.Router();
 
@@ -490,6 +491,137 @@ router.delete('/:id', async (req: Request, res: Response) => {
     console.error('Error deleting bookmark:', error);
     res.status(500).json({
       error: 'Failed to delete bookmark',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+/**
+ * @openapi
+ * /api/v1/bookmarks/bulk:
+ *   post:
+ *     summary: Create multiple bookmarks
+ *     description: Bulk create bookmarks from a list of URLs
+ *     tags:
+ *       - Bookmarks
+ *     security:
+ *       - cookieAuth: []
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               urls:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: uri
+ *                 minItems: 1
+ *                 maxItems: 100
+ *     responses:
+ *       200:
+ *         description: Bookmarks created successfully
+ *       400:
+ *         description: Invalid request
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ */
+router.post('/bulk', enrichmentRateLimit, checkDailyBudget, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const { urls } = req.body;
+
+    // Validation
+    if (!Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid request',
+        message: 'URLs must be a non-empty array'
+      });
+    }
+
+    if (urls.length > 100) {
+      return res.status(400).json({
+        error: 'Invalid request',
+        message: 'Cannot import more than 100 URLs at once. For larger imports, please split into multiple batches.'
+      });
+    }
+
+    // Validate URL format
+    const urlRegex = /^https?:\/\/.+/i;
+    const invalidUrls = urls.filter((url: string) => !urlRegex.test(url));
+    if (invalidUrls.length > 0) {
+      return res.status(400).json({
+        error: 'Invalid URLs',
+        message: `${invalidUrls.length} URLs have invalid format`,
+        invalidUrls: invalidUrls.slice(0, 10)
+      });
+    }
+
+    // Sanitize URLs and extract domains
+    const bookmarkData = urls.map((url: string) => {
+      const sanitized = sanitizeUrl(url);
+      // Extract domain from URL
+      let domain = '';
+      try {
+        const urlObj = new URL(sanitized);
+        domain = urlObj.hostname;
+      } catch {
+        domain = 'unknown';
+      }
+      return {
+        url: sanitized,
+        domain,
+        title: sanitized, // Use URL as temporary title, enrichment will update it
+      };
+    });
+
+    logger.info(`[Bulk Import] Creating ${bookmarkData.length} bookmarks for user ${userId}`);
+
+    // Create all bookmarks in transaction
+    const bookmarks = await prisma.$transaction(
+      bookmarkData.map((data) =>
+        prisma.bookmark.create({
+          data: {
+            url: data.url,
+            title: data.title,
+            domain: data.domain,
+            userId,
+            status: 'pending',
+            createdAt: new Date()
+          }
+        })
+      )
+    );
+
+    logger.info(`[Bulk Import] Created ${bookmarks.length} bookmarks`);
+
+    // Enqueue enrichment jobs
+    const jobs = bookmarks.map(bookmark => ({
+      bookmarkId: bookmark.id,
+      userId: bookmark.userId,
+      url: bookmark.url
+    }));
+
+    await enrichmentQueue.addBulk(jobs);
+
+    logger.info(`[Bulk Import] Enqueued ${jobs.length} enrichment jobs`);
+
+    // Invalidate caches
+    await invalidateBookmarkCaches(userId);
+    await invalidateSearchCaches(userId);
+    await graphCache.invalidateProjectionCache(userId);
+
+    res.json({
+      created: bookmarks.length,
+      bookmarks
+    });
+  } catch (error) {
+    logger.error('[Bulk Import] Error:', error);
+    res.status(500).json({
+      error: 'Failed to create bookmarks',
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
