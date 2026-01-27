@@ -38,21 +38,39 @@ export default function BulkImportModal({ isOpen, onClose, onImportComplete }: B
     }
   }, [isOpen]);
 
-  // Parse and validate URLs in real-time
+  // Auto-close timeout with cleanup (Issue 1 fix)
+  useEffect(() => {
+    if (state === 'success') {
+      const timeoutId = setTimeout(() => {
+        onClose();
+        onImportComplete();
+      }, 3000);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [state, onClose, onImportComplete]);
+
+  // Parse and validate URLs in real-time (Issue 2 fix: use URL constructor)
   const { validUrls, invalidUrls } = useMemo(() => {
     const lines = input
       .split('\n')
       .map(line => line.trim())
       .filter(line => line.length > 0);
 
-    const urlRegex = /^https?:\/\/.+/i;
     const valid: string[] = [];
     const invalid: string[] = [];
 
     lines.forEach(line => {
-      if (urlRegex.test(line)) {
-        valid.push(line);
-      } else {
+      try {
+        const url = new URL(line);
+        // Only allow http and https protocols
+        if (url.protocol === 'http:' || url.protocol === 'https:') {
+          valid.push(line);
+        } else {
+          invalid.push(line);
+        }
+      } catch {
+        // URL constructor throws for invalid URLs
         invalid.push(line);
       }
     });
@@ -81,12 +99,6 @@ export default function BulkImportModal({ isOpen, onClose, onImportComplete }: B
       const data = await response.json();
       setImportedCount(data.created || validUrls.length);
       setState('success');
-
-      // Auto-close after 3 seconds
-      setTimeout(() => {
-        onClose();
-        onImportComplete();
-      }, 3000);
     } catch (error) {
       setState('error');
       setErrorMessage(error instanceof Error ? error.message : 'Failed to import bookmarks');

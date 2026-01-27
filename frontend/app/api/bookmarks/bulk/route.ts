@@ -15,7 +15,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
 
-    console.log('[Frontend POST /api/bookmarks/bulk] Request body:', body);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Frontend POST /api/bookmarks/bulk] Request body:', body);
+    }
 
     const response = await fetch(BACKEND_API, {
       method: 'POST',
@@ -23,11 +25,15 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(body),
     });
 
-    console.log('[Frontend POST /api/bookmarks/bulk] Response status:', response.status);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Frontend POST /api/bookmarks/bulk] Response status:', response.status);
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error('[Frontend POST /api/bookmarks/bulk] Error:', errorData);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[Frontend POST /api/bookmarks/bulk] Error:', errorData);
+      }
       return NextResponse.json(
         { error: errorData.error || errorData.message || 'Failed to import bookmarks' },
         { status: response.status }
@@ -35,10 +41,14 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    console.log('[Frontend POST /api/bookmarks/bulk] Success:', data);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Frontend POST /api/bookmarks/bulk] Success:', data);
+    }
     return NextResponse.json(data, { status: 200 });
   } catch (error) {
-    console.error('POST /api/bookmarks/bulk error:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('POST /api/bookmarks/bulk error:', error);
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to import bookmarks' },
       { status: 500 }
