@@ -14,7 +14,7 @@ const mockAuthenticatedFetch = authenticatedFetch as jest.MockedFunction<typeof 
 
 describe('BulkImportModal', () => {
   const mockOnClose = jest.fn();
-  const mockOnSuccess = jest.fn();
+  const mockOnImportComplete = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -26,7 +26,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -39,7 +39,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={false}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -54,7 +54,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -77,7 +77,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -91,7 +91,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -112,7 +112,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -126,7 +126,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -157,7 +157,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -185,7 +185,7 @@ describe('BulkImportModal', () => {
 
       // Wait for completion
       await waitFor(() => {
-        expect(mockOnSuccess).toHaveBeenCalled();
+        expect(mockOnImportComplete).toHaveBeenCalled();
       });
 
       jest.useRealTimers();
@@ -205,7 +205,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -233,7 +233,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -252,7 +252,7 @@ describe('BulkImportModal', () => {
 
       await waitFor(() => {
         expect(mockOnClose).toHaveBeenCalled();
-        expect(mockOnSuccess).toHaveBeenCalled();
+        expect(mockOnImportComplete).toHaveBeenCalled();
       });
 
       jest.useRealTimers();
@@ -272,7 +272,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -299,7 +299,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -332,7 +332,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 
@@ -368,7 +368,7 @@ describe('BulkImportModal', () => {
         <BulkImportModal
           isOpen={true}
           onClose={mockOnClose}
-          onSuccess={mockOnSuccess}
+          onImportComplete={mockOnImportComplete}
         />
       );
 

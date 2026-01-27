@@ -17,12 +17,12 @@ import styles from './BulkImportModal.module.css';
 interface BulkImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onImportComplete: () => void;
 }
 
 type ImportState = 'idle' | 'loading' | 'success' | 'error';
 
-export default function BulkImportModal({ isOpen, onClose, onSuccess }: BulkImportModalProps) {
+export default function BulkImportModal({ isOpen, onClose, onImportComplete }: BulkImportModalProps) {
   const [input, setInput] = useState('');
   const [state, setState] = useState<ImportState>('idle');
   const [errorMessage, setErrorMessage] = useState('');
@@ -85,7 +85,7 @@ export default function BulkImportModal({ isOpen, onClose, onSuccess }: BulkImpo
       // Auto-close after 3 seconds
       setTimeout(() => {
         onClose();
-        onSuccess();
+        onImportComplete();
       }, 3000);
     } catch (error) {
       setState('error');
