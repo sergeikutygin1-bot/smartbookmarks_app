@@ -43,7 +43,11 @@ export function Sidebar() {
 
   // Handle bulk import completion
   const handleImportComplete = async () => {
-    await refetch();
+    try {
+      await refetch();
+    } catch (error) {
+      console.error("Failed to refetch bookmarks after import:", error);
+    }
   };
 
   return (
