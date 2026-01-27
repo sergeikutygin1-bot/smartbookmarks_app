@@ -10,9 +10,52 @@ import {
 } from '../queues/graphQueue';
 import { trackAICost } from '../middleware/costControl';
 import { graphCache } from '../services/graphCache';
+import { getJobStorage } from '../services/jobStorage';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+/**
+ * Check if all graph agents have completed and update job status to 'completed'
+ * Expected agents: ExtractorAgent, AnalyzerAgent, EmbedderAgent, (TaggerAgent),
+ *                  EntityExtractorAgent, ConceptAnalyzerAgent, SimilarityComputer
+ */
+async function checkAndCompleteJob(jobId: string) {
+  try {
+    console.log(`[GraphWorker] Checking job completion for ${jobId}`);
+    const jobStorage = getJobStorage();
+    const job = await jobStorage.getJob(jobId);
+
+    if (!job) {
+      console.log(`[GraphWorker] Job ${jobId} not found`);
+      return;
+    }
+
+    if (job.status !== 'graph_processing') {
+      console.log(`[GraphWorker] Job ${jobId} status is ${job.status}, not graph_processing - skipping`);
+      return;
+    }
+
+    // Check if we have all expected graph agent traces
+    const agentNames = (job.agentTraces || []).map(t => t.agentName);
+    const hasEntityExtractor = agentNames.includes('EntityExtractorAgent');
+    const hasConceptAnalyzer = agentNames.includes('ConceptAnalyzerAgent');
+    const hasSimilarityComputer = agentNames.includes('SimilarityComputer');
+
+    console.log(`[GraphWorker] Job ${jobId} agents: Entity=${hasEntityExtractor}, Concept=${hasConceptAnalyzer}, Similarity=${hasSimilarityComputer}`);
+    console.log(`[GraphWorker] Job ${jobId} all agent names: ${agentNames.join(', ')}`);
+
+    if (hasEntityExtractor && hasConceptAnalyzer && hasSimilarityComputer) {
+      // All graph agents have completed - mark job as completed
+      await jobStorage.updateJobStatus(jobId, 'completed');
+      console.log(`[GraphWorker] ✓ All graph agents completed for job ${jobId} - marked as completed`);
+    } else {
+      console.log(`[GraphWorker] Job ${jobId} still waiting for agents to complete`);
+    }
+  } catch (error) {
+    console.error(`[GraphWorker] Failed to check job completion for ${jobId}:`, error);
+  }
+}
 
 /**
  * Graph Workers
@@ -68,6 +111,25 @@ async function processEntityExtractionJob(
     // Save entities to database
     await agent.saveEntities(result.entities, bookmarkId, userId);
 
+    // Append entity extraction traces to enrichment job
+    if (job.data.jobId) {
+      const jobStorage = getJobStorage();
+      const agentTraces = agent.getAgentTraces();
+
+      for (const trace of agentTraces) {
+        try {
+          await jobStorage.addAgentTrace(job.data.jobId, trace);
+        } catch (error) {
+          console.error(`[GraphWorker:Entity] Failed to append trace:`, error);
+        }
+      }
+
+      console.log(`[GraphWorker:Entity] ✓ Appended ${agentTraces.length} trace(s) to job ${job.data.jobId}`);
+
+      // Check if all graph work is done
+      await checkAndCompleteJob(job.data.jobId);
+    }
+
     // Invalidate entity caches (new entities created)
     await graphCache.invalidateEntityCaches(userId);
     await graphCache.invalidateStatsCaches(userId);
@@ -121,6 +183,25 @@ async function processConceptAnalysisJob(
 
     // Save concepts to database
     await agent.saveConcepts(result.concepts, bookmarkId, userId);
+
+    // Append concept analysis traces to enrichment job
+    if (job.data.jobId) {
+      const jobStorage = getJobStorage();
+      const agentTraces = agent.getAgentTraces();
+
+      for (const trace of agentTraces) {
+        try {
+          await jobStorage.addAgentTrace(job.data.jobId, trace);
+        } catch (error) {
+          console.error(`[GraphWorker:Concept] Failed to append trace:`, error);
+        }
+      }
+
+      console.log(`[GraphWorker:Concept] ✓ Appended ${agentTraces.length} trace(s) to job ${job.data.jobId}`);
+
+      // Check if all graph work is done
+      await checkAndCompleteJob(job.data.jobId);
+    }
 
     // Invalidate concept caches (new concepts created)
     await graphCache.invalidateConceptCaches(userId);
@@ -182,6 +263,37 @@ async function processSimilarityJob(
       result.similarBookmarks,
       userId
     );
+
+    // Append similarity computation trace to enrichment job
+    if (job.data.jobId) {
+      const jobStorage = getJobStorage();
+
+      // SimilarityComputer doesn't use LLM, so create trace manually
+      await jobStorage.addAgentTrace(job.data.jobId, {
+        agentName: 'SimilarityComputer',
+        startTime: new Date(startTime),
+        endTime: new Date(),
+        duration: processingTime,
+        input: {
+          bookmarkId: job.data.bookmarkId,
+          embeddingLength: job.data.embedding?.length || 0,
+          threshold: threshold || 0.65,
+        },
+        output: {
+          similarCount: result.similarBookmarks.length,
+          similarBookmarkIds: result.similarBookmarks.map(b => b.id),
+        },
+        metadata: {
+          method: 'pgvector',
+          threshold: threshold || 0.65,
+        },
+      });
+
+      console.log(`[GraphWorker:Similarity] ✓ Appended trace to job ${job.data.jobId}`);
+
+      // Check if all graph work is done
+      await checkAndCompleteJob(job.data.jobId);
+    }
 
     // Invalidate similar bookmark caches (new relationships created)
     await graphCache.invalidateSimilarCaches(bookmarkId, userId);

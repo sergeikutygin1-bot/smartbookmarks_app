@@ -15,6 +15,7 @@ export interface EntityExtractionJobData {
   content: string; // Title + summary + key points
   url: string;
   priority?: number;
+  jobId?: string; // Link to enrichment job for trace appending
 }
 
 // Concept Analysis Job
@@ -24,6 +25,7 @@ export interface ConceptAnalysisJobData {
   content: string;
   embedding: number[];
   priority?: number;
+  jobId?: string; // Link to enrichment job for trace appending
 }
 
 // Similarity Computation Job
@@ -33,6 +35,7 @@ export interface SimilarityJobData {
   embedding: number[];
   threshold?: number;
   priority?: number;
+  jobId?: string; // Link to enrichment job for trace appending
 }
 
 // Insight Generation Job (batch process for user)
@@ -181,11 +184,18 @@ class GraphQueueManager {
     userId: string,
     content: string,
     embedding: number[],
-    url: string
+    url: string,
+    jobId?: string // Enrichment job ID for linking traces
   ) {
     // Step 1: Add entity extraction job FIRST
     // This must complete before concept analysis to prevent overlaps
-    const entityJob = await this.addEntityExtractionJob({ bookmarkId, userId, content, url });
+    const entityJob = await this.addEntityExtractionJob({
+      bookmarkId,
+      userId,
+      content,
+      url,
+      jobId // Pass enrichment jobId for trace linking
+    });
 
     // Step 2: Add concept analysis job with dependency on entity job
     // This ensures entities are saved before concept deduplication logic runs
@@ -194,6 +204,7 @@ class GraphQueueManager {
       userId,
       content,
       embedding,
+      jobId, // Pass enrichment jobId for trace linking
     }, {
       priority: 70,
       jobId: `concept-${bookmarkId}`,
@@ -205,7 +216,12 @@ class GraphQueueManager {
     });
 
     // Step 3: Similarity can run independently
-    await this.addSimilarityJob({ bookmarkId, userId, embedding });
+    await this.addSimilarityJob({
+      bookmarkId,
+      userId,
+      embedding,
+      jobId // Pass enrichment jobId for trace linking
+    });
 
     console.log(`[GraphQueue] Graph processing jobs queued for bookmark ${bookmarkId} (entity → concept sequence)`);
   }

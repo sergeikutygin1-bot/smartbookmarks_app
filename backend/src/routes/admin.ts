@@ -300,9 +300,73 @@ router.get("/jobs/:jobId", async (req: Request, res: Response) => {
   // Calculate cost breakdown
   const costAnalysis = jobStorage.calculateJobCost(job);
 
+  // Fetch entities and concepts from database for this bookmark
+  let entities = [];
+  let concepts = [];
+
+  // Try to find bookmark by URL to get its entities/concepts
+  try {
+    const bookmark = await prisma.bookmark.findFirst({
+      where: { url: job.url },
+    });
+
+    if (bookmark) {
+      // Fetch entities via relationships
+      const entityRelationships = await prisma.relationship.findMany({
+        where: {
+          sourceType: 'bookmark',
+          sourceId: bookmark.id,
+          targetType: 'entity',
+          relationshipType: 'mentions',
+        },
+      });
+
+      // Get entity details
+      const entityIds = entityRelationships.map(r => r.targetId);
+      if (entityIds.length > 0) {
+        entities = await prisma.entity.findMany({
+          where: { id: { in: entityIds } },
+          select: {
+            id: true,
+            canonicalName: true,
+            entityType: true,
+            occurrenceCount: true,
+          },
+        });
+      }
+
+      // Fetch concepts via relationships
+      const conceptRelationships = await prisma.relationship.findMany({
+        where: {
+          sourceType: 'bookmark',
+          sourceId: bookmark.id,
+          targetType: 'concept',
+          relationshipType: 'about',
+        },
+      });
+
+      const conceptIds = conceptRelationships.map(r => r.targetId);
+      if (conceptIds.length > 0) {
+        concepts = await prisma.concept.findMany({
+          where: { id: { in: conceptIds } },
+          select: {
+            id: true,
+            canonicalName: true,
+            parentConceptId: true,
+            occurrenceCount: true,
+          },
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[Admin] Failed to fetch entities/concepts:', error);
+  }
+
   res.json({
     job,
-    costAnalysis
+    costAnalysis,
+    entities,
+    concepts,
   });
 });
 
@@ -587,6 +651,7 @@ function getInlineAdminHTML(): string {
     .status.completed { background: #4CAF50; color: #000; }
     .status.failed { background: #F44336; color: #fff; }
     .status.processing { background: #FFC107; color: #000; }
+    .status.graph_processing { background: #2196F3; color: #fff; }
     button {
       background: #4CAF50;
       color: #000;
@@ -849,7 +914,7 @@ function getInlineAdminHTML(): string {
     <div class="modal-content">
       <div class="modal-header">
         <h2 id="modalTitle">LLM Execution Trace</h2>
-        <span class="close" onclick="closeTraceModal()">&times;</span>
+        <span class="close" id="closeModalBtn">&times;</span>
       </div>
       <div class="modal-body" id="traceContent">
         <!-- Dynamic trace content will be inserted here -->
@@ -994,9 +1059,15 @@ function getInlineAdminHTML(): string {
         const time = new Date(e.startedAt).toLocaleTimeString();
         const url = e.url.length > 50 ? e.url.substring(0, 50) + '...' : e.url;
         const duration = e.duration ? \`\${(e.duration / 1000).toFixed(2)}s\` : '-';
-        const steps = Object.keys(e.steps).map(s =>
-          e.steps[s].success ? \`✓ \${s}\` : \`✗ \${s}\`
-        ).join(', ');
+
+        // Show actual agent execution status from traces
+        const agentNames = ['ExtractorAgent', 'AnalyzerAgent', 'EmbedderAgent', 'EntityExtractorAgent', 'ConceptAnalyzerAgent', 'SimilarityComputer'];
+        const executedAgents = (e.agentTraces || []).map(t => t.agentName);
+        const steps = agentNames.map(name => {
+          const executed = executedAgents.includes(name);
+          const shortName = name.replace('Agent', '').replace('Computer', '');
+          return executed ? \`✓ \${shortName}\` : \`⏳ \${shortName}\`;
+        }).join(', ');
 
         return \`
           <tr>
@@ -1023,16 +1094,16 @@ function getInlineAdminHTML(): string {
         const jobId = job.jobId.replace('enrich-', '');
         const duration = job.totalDuration ? \`\${(job.totalDuration / 1000).toFixed(2)}s\` : '-';
 
-        // Quality metrics
+        // Quality metrics WITHOUT tags
         let quality = '-';
         if (job.quality) {
           const metrics = [];
           if (job.quality.contentLength) metrics.push(\`\${Math.round(job.quality.contentLength / 1000)}K content\`);
-          if (job.quality.tagCount) metrics.push(\`\${job.quality.tagCount} tags\`);
+          if (job.quality.summaryLength) metrics.push(\`\${Math.round(job.quality.summaryLength / 100) * 100} chars summary\`);
           quality = metrics.join(', ') || '-';
         }
 
-        const viewBtn = \`<button onclick="viewJob('\${job.jobId}')" style="padding: 4px 8px; font-size: 11px;">View Details</button>\`;
+        const viewBtn = \`<button class="view-job-btn" data-job-id="\${job.jobId}" style="padding: 4px 8px; font-size: 11px;">View Details</button>\`;
 
         return \`
           <tr>
@@ -1048,7 +1119,7 @@ function getInlineAdminHTML(): string {
       }).join('');
     }
 
-    async function viewJob(jobId) {
+    window.viewJob = async function(jobId) {
       try {
         const res = await fetch(\`/admin/jobs/\${jobId}\`);
         const data = await res.json();
@@ -1190,6 +1261,56 @@ function getInlineAdminHTML(): string {
           \`;
         }
 
+        // Entities Section
+        if (data.entities && data.entities.length > 0) {
+          content += \`
+            <div class="trace-section">
+              <h3>🏷️ Extracted Entities (\${data.entities.length})</h3>
+              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
+          \`;
+
+          data.entities.forEach(entity => {
+            content += \`
+              <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 4px; padding: 10px;">
+                <div style="font-weight: bold; color: #4CAF50; margin-bottom: 5px;">\${entity.canonicalName}</div>
+                <div style="font-size: 11px; color: #888;">\${entity.entityType}</div>
+                <div style="font-size: 10px; color: #666; margin-top: 5px;">\${entity.occurrenceCount} occurrence(s)</div>
+              </div>
+            \`;
+          });
+
+          content += \`
+              </div>
+            </div>
+          \`;
+        }
+
+        // Concepts Section
+        if (data.concepts && data.concepts.length > 0) {
+          content += \`
+            <div class="trace-section">
+              <h3>💡 Identified Concepts (\${data.concepts.length})</h3>
+              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px;">
+          \`;
+
+          data.concepts.forEach(concept => {
+            const isChild = !!concept.parentConceptId;
+            content += \`
+              <div style="background: #1a1a1a; border: 1px solid #333; border-radius: 4px; padding: 10px;">
+                <div style="font-weight: bold; color: #2196F3; margin-bottom: 5px;">
+                  \${isChild ? '└─ ' : ''}\${concept.canonicalName}
+                </div>
+                <div style="font-size: 10px; color: #666; margin-top: 5px;">\${concept.occurrenceCount} occurrence(s)</div>
+              </div>
+            \`;
+          });
+
+          content += \`
+              </div>
+            </div>
+          \`;
+        }
+
         // Job Summary Section
         content += \`
           <div class="trace-section">
@@ -1248,9 +1369,24 @@ function getInlineAdminHTML(): string {
       }
     }
 
-    function closeTraceModal() {
+    window.closeTraceModal = function() {
       document.getElementById('traceModal').style.display = 'none';
     }
+
+    // Event delegation for View Details buttons
+    document.getElementById('jobs').addEventListener('click', function(event) {
+      if (event.target && event.target.classList.contains('view-job-btn')) {
+        const jobId = event.target.getAttribute('data-job-id');
+        if (jobId) {
+          window.viewJob(jobId);
+        }
+      }
+    });
+
+    // Close modal button
+    document.getElementById('closeModalBtn').addEventListener('click', function() {
+      window.closeTraceModal();
+    });
 
     // Close modal when clicking outside
     window.onclick = function(event) {

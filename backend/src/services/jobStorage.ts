@@ -77,7 +77,7 @@ export interface AgentTrace {
 export interface JobExecution {
   jobId: string;
   url: string;
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'graph_processing' | 'completed' | 'failed';
 
   // Timestamps
   queuedAt: Date;

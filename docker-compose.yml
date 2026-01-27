@@ -194,13 +194,19 @@ services:
 
   graph-worker:
     build:
-      context: ./ai-service
-      dockerfile: Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile.dev
     container_name: smartbookmarks_graph_worker
+    command: npm run worker:graph
     volumes:
-      - ./ai-service:/app
+      - ./backend/src:/app/src
+      - ./backend/prisma:/app/prisma
+      - ./backend/scripts:/app/scripts
+      - backend_data:/app/.data
+    env_file:
+      - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://smartbookmarks:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/smartbookmarks
+      - DATABASE_URL=postgresql://smartbookmarks:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/smartbookmarks
       - REDIS_URL=redis://redis:6379
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - AI_MODEL=gpt-4o-mini-2024-07-18
@@ -215,7 +221,6 @@ services:
         condition: service_healthy
       backend-api:
         condition: service_healthy
-    command: python -m graph_worker
     restart: unless-stopped
     networks:
       - smartbookmarks

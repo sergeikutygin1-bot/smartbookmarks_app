@@ -95,12 +95,22 @@ async function processEnrichmentJob(
     // Collect detailed agent traces from enrichment agent
     const agentTraces = agent.getAgentTraces();
 
-    // Determine final status based on quality gates
+    // Determine status based on quality gates and graph processing
     const enrichmentQualityStatus = (result as any).qualityGateStatus || "passed";
-    const jobStatus = enrichmentQualityStatus === "needs_review" ? "needs_review" : "completed";
+
+    // If enrichment passed and we're triggering graph processing, mark as graph_processing
+    // Otherwise mark as needs_review or completed
+    let jobStatus: string;
+    if (enrichmentQualityStatus === "needs_review") {
+      jobStatus = "needs_review";
+    } else if (result.embedding && job.data.bookmarkId) {
+      jobStatus = "graph_processing"; // Graph work pending
+    } else {
+      jobStatus = "completed"; // No graph work needed
+    }
 
     // Update job execution with final result
-    jobExecution.status = jobStatus as any; // Allow "needs_review" in addition to "completed" and "failed"
+    jobExecution.status = jobStatus as any;
     jobExecution.completedAt = new Date();
     jobExecution.totalDuration = processingTime;
     jobExecution.agentTraces = agentTraces; // Store detailed LLM traces
@@ -242,7 +252,8 @@ async function processEnrichmentJob(
               job.data.userId,
               graphContent,
               result.embedding,
-              url
+              url,
+              job.id! // Pass enrichment job ID to link traces
             );
             console.log(`[Worker] ✓ Graph processing jobs queued successfully`);
           } catch (graphError) {
