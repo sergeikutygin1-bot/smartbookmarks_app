@@ -53,6 +53,8 @@ export interface UpdateBookmarkInput {
   status?: string;
   metadata?: Record<string, unknown>;
   embedding?: number[];
+  summaryEmbedding?: number[];
+  fullContent?: Record<string, unknown>;
 }
 
 export const bookmarkRepository = {
@@ -133,10 +135,10 @@ export const bookmarkRepository = {
   },
 
   async update(id: string, userId: string, data: UpdateBookmarkInput) {
-    // Extract tags for separate handling (many-to-many relationship)
-    const { embedding, tags, ...updateData } = data;
+    // Extract fields for separate handling
+    const { embedding, summaryEmbedding, fullContent, ...updateData } = data;
 
-    // Handle embedding separately (raw SQL for pgvector)
+    // Handle combined embedding separately (raw SQL for pgvector)
     if (embedding) {
       const embeddingStr = `[${embedding.join(',')}]`;
       await prisma.$executeRaw`
@@ -147,7 +149,28 @@ export const bookmarkRepository = {
       `;
     }
 
-    // Update bookmark (excluding tags and embedding)
+    // Handle summary embedding separately (raw SQL for pgvector)
+    if (summaryEmbedding) {
+      const summaryEmbStr = `[${summaryEmbedding.join(',')}]`;
+      await prisma.$executeRaw`
+        UPDATE bookmarks
+        SET summary_embedding = ${summaryEmbStr}::vector,
+            updated_at = NOW()
+        WHERE id = ${id} AND user_id = ${userId}
+      `;
+    }
+
+    // Handle fullContent separately if provided (JSONB field)
+    // TEMPORARY: Commented out due to Prisma client sync issue
+    // TODO: Fix by running: npx prisma migrate dev or npx prisma db push
+    // if (fullContent) {
+    //   await prisma.bookmark.update({
+    //     where: { id },
+    //     data: { fullContent: fullContent as any },
+    //   });
+    // }
+
+    // Update bookmark (excluding tags and embeddings)
     const updatedBookmark = await prisma.bookmark.update({
       where: { id },
       data: {
@@ -246,65 +269,53 @@ export const bookmarkRepository = {
     return enrichResultsWithTags(results);
   },
 
-  // Hybrid search (combine keyword + semantic)
+  // Hybrid search using RRF (Reciprocal Rank Fusion)
+  // Combines vector, keyword, and graph signals for improved relevance
   async searchHybrid(
     userId: string,
     query: string,
-    embedding: number[],
+    embedding: number[], // Note: embedding parameter kept for backward compatibility but not used (RRF generates its own)
     limit = 20
   ) {
-    const tsQuery = query.split(' ').join(' & ');
-    const embeddingStr = `[${embedding.join(',')}]`;
+    // Import RRF search service
+    const { rrfSearch } = await import('../services/rrfSearch');
 
-    const results = await prisma.$queryRaw<Array<{
-      id: string;
-      title: string;
-      url: string;
-      summary: string | null;
-      domain: string;
-      contentType: string;
-      status: string;
-      createdAt: Date;
-      updatedAt: Date;
-      processedAt: Date | null;
-      score: number
-    }>>`
-      WITH keyword_results AS (
-        SELECT id, ts_rank(search_vector, to_tsquery('english', ${tsQuery})) as keyword_score
-        FROM bookmarks
-        WHERE user_id = ${userId}
-          AND status = 'completed'
-          AND search_vector @@ to_tsquery('english', ${tsQuery})
-      ),
-      semantic_results AS (
-        SELECT id, 1 - (embedding <=> ${embeddingStr}::vector) as semantic_score
-        FROM bookmarks
-        WHERE user_id = ${userId}
-          AND status = 'completed'
-          AND embedding IS NOT NULL
-      )
-      SELECT
-        b.id,
-        b.title,
-        b.url,
-        b.summary,
-        b.domain,
-        b.content_type as "contentType",
-        b.status,
-        b.created_at as "createdAt",
-        b.updated_at as "updatedAt",
-        b.processed_at as "processedAt",
-        (COALESCE(k.keyword_score, 0) * 0.5 + COALESCE(s.semantic_score, 0) * 0.5) as score
-      FROM bookmarks b
-      LEFT JOIN keyword_results k ON b.id = k.id
-      LEFT JOIN semantic_results s ON b.id = s.id
-      WHERE b.user_id = ${userId}
-        AND (k.id IS NOT NULL OR s.id IS NOT NULL)
-      ORDER BY score DESC
-      LIMIT ${limit}
-    `;
+    // Perform RRF search with all signals
+    const rrfResults = await rrfSearch({
+      query,
+      userId,
+      limit,
+      k: 60,
+      enableGraphBoost: true,
+    });
 
-    return enrichResultsWithTags(results);
+    if (rrfResults.length === 0) return [];
+
+    // Fetch full bookmark data for RRF results
+    const bookmarkIds = rrfResults.map(r => r.bookmarkId);
+    const bookmarks = await prisma.bookmark.findMany({
+      where: { id: { in: bookmarkIds }, userId },
+      include: {
+        tags: {
+          include: { tag: true }
+        }
+      },
+    });
+
+    // Preserve RRF order and attach scores
+    return bookmarkIds
+      .map(id => {
+        const bookmark = bookmarks.find(b => b.id === id);
+        const rrfResult = rrfResults.find(r => r.bookmarkId === id);
+        if (!bookmark || !rrfResult) return null;
+
+        return {
+          ...bookmark,
+          score: rrfResult.rrfScore,
+          signals: rrfResult.signals,
+        };
+      })
+      .filter(Boolean) as any[];
   },
 };
 

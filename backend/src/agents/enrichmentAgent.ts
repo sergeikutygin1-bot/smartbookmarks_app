@@ -7,8 +7,21 @@ import type {
   EnrichmentOptions,
   EnrichmentResult,
   EnrichmentError,
+  DetectedContentType,
+  ContentTypeClassification,
+  AnalyzerContext,
 } from "../types/schemas";
 import type { AgentTrace } from "../services/jobStorage";
+
+// PHASE 1: Content-Type Routing
+import { ContentTypeClassifierAgent } from "./ContentTypeClassifierAgent";
+import { BaseAnalyzerAgent } from "./analyzers/BaseAnalyzerAgent";
+import { ArticleAnalyzerAgent } from "./analyzers/ArticleAnalyzerAgent";
+import { PaperAnalyzerAgent } from "./analyzers/PaperAnalyzerAgent";
+import { VideoAnalyzerAgent } from "./analyzers/VideoAnalyzerAgent";
+import { SocialAnalyzerAgent } from "./analyzers/SocialAnalyzerAgent";
+import { DocumentAnalyzerAgent } from "./analyzers/DocumentAnalyzerAgent";
+import { GenericAnalyzerAgent } from "./analyzers/GenericAnalyzerAgent";
 
 /**
  * Enrichment Agent - Main orchestrator for bookmark enrichment
@@ -26,7 +39,7 @@ import type { AgentTrace } from "../services/jobStorage";
  */
 
 interface EnrichmentProgress {
-  step: "extraction" | "analysis" | "tagging" | "embedding" | "completed";
+  step: "extraction" | "classification" | "analysis" | "tagging" | "embedding" | "completed";
   message: string;
   timestamp: Date;
 }
@@ -60,7 +73,7 @@ export class EnrichmentAgent {
    * Record an error with recovery status
    */
   private recordError(
-    step: "extraction" | "analysis" | "tagging" | "embedding",
+    step: "extraction" | "classification" | "analysis" | "tagging" | "embedding",
     error: unknown,
     recoverable: boolean = false
   ) {
@@ -116,36 +129,104 @@ export class EnrichmentAgent {
       );
     }
 
-    // Step 3: Analyze content with user context (unless skipped)
-    this.emitProgress("analysis", "Analyzing content with AI...");
+    // PHASE 1: Step 2.5: Classify content type
+    this.emitProgress("classification", "Classifying content type...");
+    let contentTypeClassification: ContentTypeClassification;
+
+    try {
+      const classifier = new ContentTypeClassifierAgent();
+      const classificationStartTime = new Date();
+
+      contentTypeClassification = await classifier.classify(
+        options.url,
+        extractedContent
+      );
+
+      // Store classification trace
+      this.agentTraces.push({
+        agentName: "ContentTypeClassifier",
+        startTime: classificationStartTime,
+        endTime: new Date(),
+        duration: Date.now() - classificationStartTime.getTime(),
+        input: {
+          url: options.url,
+          domain: extractedContent.domain,
+          contentLength: extractedContent.cleanText.length,
+        },
+        output: {
+          type: contentTypeClassification.type,
+          confidence: contentTypeClassification.confidence,
+          method: contentTypeClassification.method,
+        },
+        metadata: {
+          indicators: contentTypeClassification.indicators,
+        },
+      });
+
+      console.log(
+        `[EnrichmentAgent] Classified as '${contentTypeClassification.type}' ` +
+          `(confidence: ${contentTypeClassification.confidence.toFixed(2)}, ` +
+          `method: ${contentTypeClassification.method})`
+      );
+    } catch (error) {
+      this.recordError("classification", error, true);
+      // Graceful degradation: use 'other' type
+      contentTypeClassification = {
+        type: "other",
+        confidence: 0.5,
+        method: "heuristic",
+      };
+      console.warn(
+        "[EnrichmentAgent] Classification failed, using fallback type 'other'"
+      );
+    }
+
+    // Step 3: Analyze content with specialized analyzer (PHASE 1: Modified)
+    this.emitProgress(
+      "analysis",
+      `Analyzing ${contentTypeClassification.type} content with AI...`
+    );
     let analysis;
+
     try {
       if (options.skipAnalysis) {
         console.log("[EnrichmentAgent] Skipping analysis (option set)");
+        // Fallback to simple analysis (backwards compatible)
         analysis = {
           title: options.userTitle || extractedContent.title,
-          summary: options.userSummary || options.userNotes || "No summary available",
+          summary:
+            options.userSummary || options.userNotes || "No summary available",
           tags: options.userTags || [],
+          keyPoints: [],
+          tone: "unknown",
+          contentMetrics: this.calculateBasicMetrics(
+            extractedContent.cleanText
+          ),
+          confidence: 0.5,
+          modelUsed: "skipped",
         };
       } else {
-        // Pass user context to enable merge & enhance strategy
-        const userContext = {
-          userTitle: options.userTitle,
-          userSummary: options.userSummary,
-          userTags: options.userTags,
+        // PHASE 1: Select specialized analyzer based on content type
+        const analyzer = this.selectAnalyzer(contentTypeClassification.type);
+
+        const analyzerContext: AnalyzerContext = {
+          extractedContent,
+          contentTypeClassification,
+          userContext: {
+            userTitle: options.userTitle,
+            userSummary: options.userSummary,
+            userTags: options.userTags,
+          },
         };
 
-        // Use tracing version to collect LLM observability data
         const analysisStartTime = new Date();
-        const { result: analysisResult, trace: analysisTrace } = await analyzeContentWithTrace(
-          extractedContent,
-          userContext
-        );
+        const { result: analysisResult, trace: analysisTrace } =
+          await analyzer.analyze(analyzerContext);
         analysis = analysisResult;
 
-        // Store agent trace with LLM details
+        // Store analyzer trace (compatible with existing AgentTrace structure)
         this.agentTraces.push({
-          agentName: 'Analysis',
+          agentName: `${this.getAnalyzerName(contentTypeClassification.type)}Analyzer`,
           startTime: analysisStartTime,
           endTime: new Date(),
           duration: analysisTrace.duration,
@@ -153,25 +234,44 @@ export class EnrichmentAgent {
             extractedTitle: extractedContent.title,
             contentLength: extractedContent.cleanText.length,
             contentType: extractedContent.contentType,
-            userContext,
+            detectedContentType: contentTypeClassification.type,
+            userContext: analyzerContext.userContext,
           },
           output: {
             title: analysisResult.title,
             summaryLength: analysisResult.summary.length,
             tags: analysisResult.tags,
+            keyPointsCount: analysisResult.keyPoints.length,
+            tone: analysisResult.tone,
+            confidence: analysisResult.confidence,
           },
           llmTrace: analysisTrace,
         });
 
-        // console.log(`[EnrichmentAgent] Generated comprehensive analysis: ${analysis.title}`);
+        console.log(
+          `[EnrichmentAgent] Generated ${contentTypeClassification.type} analysis: ${analysis.title} ` +
+            `(confidence: ${analysis.confidence.toFixed(2)})`
+        );
       }
     } catch (error) {
       this.recordError("analysis", error, true);
-      // Graceful degradation: use fallback analysis with user context if available
+      // Graceful degradation: use fallback analysis
       analysis = {
         title: options.userTitle || extractedContent.title || "Untitled",
-        summary: options.userSummary || `Content from ${extractedContent.domain}: ${extractedContent.title}. AI analysis failed - manual review needed.`,
-        tags: options.userTags || [extractedContent.contentType, "needs-review"],
+        summary:
+          options.userSummary ||
+          `Content from ${extractedContent.domain}: ${extractedContent.title}. AI analysis failed - manual review needed.`,
+        tags: options.userTags || [
+          contentTypeClassification.type,
+          "needs-review",
+        ],
+        keyPoints: ["Analysis failed - requires manual review"],
+        tone: "unknown",
+        contentMetrics: this.calculateBasicMetrics(
+          extractedContent.cleanText
+        ),
+        confidence: 0.2,
+        modelUsed: "fallback",
       };
     }
 
@@ -222,11 +322,16 @@ export class EnrichmentAgent {
           // Retry once with adjusted temperature for better quality
           try {
             const retryStartTime = new Date();
+            const userContext = {
+              userTitle: options.userTitle,
+              userSummary: options.userSummary,
+              userTags: options.userTags,
+            };
             const { result: retryResult, trace: retryTrace } = await analyzeContentWithTrace(
               extractedContent,
               userContext,
               {
-                temperature: 0.6, // Slightly lower for more focused output
+                temperature: 0.3, // Lower temp on retry for more deterministic, consistent results
               }
             );
             analysis = retryResult;
@@ -366,6 +471,70 @@ export class EnrichmentAgent {
 
     return result;
   }
+
+  // ========================================================================
+  // PHASE 1: Analyzer Factory & Helper Methods
+  // ========================================================================
+
+  /**
+   * Select specialized analyzer based on detected content type
+   */
+  private selectAnalyzer(type: DetectedContentType): BaseAnalyzerAgent {
+    switch (type) {
+      case "article":
+        return new ArticleAnalyzerAgent();
+      case "paper":
+        return new PaperAnalyzerAgent();
+      case "video":
+        return new VideoAnalyzerAgent();
+      case "social":
+        return new SocialAnalyzerAgent();
+      case "document":
+        return new DocumentAnalyzerAgent();
+      default:
+        return new GenericAnalyzerAgent();
+    }
+  }
+
+  /**
+   * Get human-readable analyzer name for tracing
+   */
+  private getAnalyzerName(type: DetectedContentType): string {
+    switch (type) {
+      case "article":
+        return "Article";
+      case "paper":
+        return "Paper";
+      case "video":
+        return "Video";
+      case "social":
+        return "Social";
+      case "document":
+        return "Document";
+      default:
+        return "Generic";
+    }
+  }
+
+  /**
+   * Calculate basic content metrics (used for fallback)
+   */
+  private calculateBasicMetrics(text: string): {
+    readingLevel: number;
+    wordCount: number;
+    estimatedReadTime: number;
+  } {
+    const wordCount = text
+      .split(/\s+/)
+      .filter((word) => word.length > 0).length;
+    return {
+      readingLevel: 10.0, // Default grade level
+      wordCount,
+      estimatedReadTime: Math.max(1, Math.ceil(wordCount / 200)), // 200 words/min
+    };
+  }
+
+  // ========================================================================
 
   /**
    * Get errors that occurred during enrichment

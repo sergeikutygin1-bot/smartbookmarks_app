@@ -207,6 +207,7 @@ export function useEnrichBookmark() {
   const {
     startEnrichment,
     setProcessing,
+    setProcessingMetadata,
     setSuccess,
     setError,
     removeEnrichment,
@@ -215,7 +216,6 @@ export function useEnrichBookmark() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      console.log(`[useEnrichBookmark] Starting enrichment mutation for: ${id}`);
       enrichmentLogger.log(id, 'started', 'Enrichment mutation initiated');
 
       // Mark as queued in store
@@ -225,7 +225,6 @@ export function useEnrichBookmark() {
       // Run through concurrency queue (max 5 parallel)
       const result = await enrichmentQueue.run(id, async (signal) => {
         // Mark as processing when it starts
-        console.log(`[useEnrichBookmark] Marking as processing: ${id}`);
         setProcessing(id);
         enrichmentLogger.log(id, 'processing', 'Enrichment started processing', {
           queueStats: enrichmentQueue.getStatus(),
@@ -241,7 +240,6 @@ export function useEnrichBookmark() {
       // Update queue stats after completion
       updateQueueStats(enrichmentQueue.getStatus());
 
-      console.log(`[useEnrichBookmark] Enrichment completed for: ${id}`);
       return result;
     },
     onMutate: async (id) => {
@@ -260,7 +258,6 @@ export function useEnrichBookmark() {
       const isAborted = err instanceof Error && err.name === 'AbortError';
 
       if (isAborted) {
-        console.log(`[useEnrichBookmark] Enrichment aborted for: ${id}`);
         enrichmentLogger.logAbort(id, 'Request aborted (bookmark likely deleted)');
 
         // Don't mark as error for aborted requests - they're intentionally cancelled
@@ -270,8 +267,6 @@ export function useEnrichBookmark() {
         // Don't touch the cache - the delete mutation will handle it
         return;
       }
-
-      console.error(`[useEnrichBookmark] Enrichment failed for: ${id}`, err);
 
       // Mark as error in store
       const errorMessage = err instanceof Error ? err.message : 'Enrichment failed';
@@ -292,14 +287,11 @@ export function useEnrichBookmark() {
       }
     },
     onSuccess: async (data, id) => {
-      console.log(`[useEnrichBookmark] onSuccess called for: ${id}`);
-
       // Check if bookmark still exists in cache (might have been deleted during enrichment)
       const bookmarkStillExists = queryClient.getQueryData<Bookmark[]>(bookmarksKeys.lists())
         ?.some(b => b.id === id);
 
       if (!bookmarkStillExists) {
-        console.log(`[useEnrichBookmark] Bookmark ${id} was deleted during enrichment, skipping update`);
         enrichmentLogger.log(id, 'cancelled', 'Bookmark deleted before enrichment completed', {
           cancelledAfterCompletion: true,
         });
@@ -310,33 +302,40 @@ export function useEnrichBookmark() {
         return;
       }
 
-      console.log(`[useEnrichBookmark] Marking enrichment as successful: ${id}`);
-      // Mark as success in store
-      setSuccess(id);
-      enrichmentLogger.log(id, 'completed', 'Enrichment completed successfully', {
+      // Update queue stats
+      updateQueueStats(enrichmentQueue.getStatus());
+
+      // Update cache with enriched data (title, summary, tags)
+      queryClient.setQueryData(bookmarksKeys.detail(id), data);
+
+      enrichmentLogger.log(id, 'content-complete', 'Content enrichment completed, starting metadata extraction', {
         hasTitle: !!data.title,
         hasSummary: !!data.summary,
         tagCount: data.tags.length,
       });
 
-      // Update queue stats
-      updateQueueStats(enrichmentQueue.getStatus());
-
-      // Update cache with enriched data
-      queryClient.setQueryData(bookmarksKeys.detail(id), data);
+      // PHASE 2: Start metadata extraction (concepts, entities)
+      // Keep status as "processing-metadata" to show graph workers are running
+      setProcessingMetadata(id);
 
       // CRITICAL FIX: Refresh metadata with polling to wait for graph worker completion
       // The graph workers (entity extraction, concept analysis) run asynchronously after enrichment
       // This polling ensures we don't cache empty metadata before it's generated
       // IMPORTANT: Must AWAIT this to ensure metadata cache is updated before component renders
-      console.log(`[useEnrichBookmark] Starting metadata refresh with polling for: ${id}`);
       try {
         await refreshMetadata(id);
-        console.log(`[useEnrichBookmark] Metadata refresh completed successfully for: ${id}`);
       } catch (error) {
-        console.error(`[useEnrichBookmark] Metadata refresh failed for: ${id}`, error);
+        console.error(`❌ Metadata refresh failed:`, error);
         // Continue anyway - metadata will be fetched on-demand by components
       }
+
+      // NOW mark as success after BOTH phases complete
+      setSuccess(id);
+      enrichmentLogger.log(id, 'completed', 'Full enrichment completed (content + metadata)', {
+        hasTitle: !!data.title,
+        hasSummary: !!data.summary,
+        tagCount: data.tags.length,
+      });
 
       // Update the specific bookmark in the list cache without full invalidation
       // This prevents race conditions where list gets refetched before graph workers finish
@@ -346,14 +345,16 @@ export function useEnrichBookmark() {
           bookmark.id === id ? data : bookmark
         );
         queryClient.setQueryData(bookmarksKeys.lists(), updatedBookmarks);
-        console.log(`[useEnrichBookmark] Updated bookmark ${id} in list cache`);
       } else {
         // Fallback: if cache is empty, invalidate to refetch
-        console.log(`[useEnrichBookmark] Cache empty, invalidating to refetch`);
         queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
       }
 
-      console.log(`[useEnrichBookmark] Cache updated and metadata refresh completed for: ${id}`);
+      // Remove enrichment status AFTER everything completes
+      // Give component 1 second to sync with the enrichment completion, then cleanup
+      setTimeout(() => {
+        removeEnrichment(id);
+      }, 1000); // 1s delay ensures component has time to react to enrichment completion
     },
   });
 }

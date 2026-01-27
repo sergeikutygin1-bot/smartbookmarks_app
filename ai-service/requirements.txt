@@ -1,0 +1,43 @@
+# LangChain Core (updated to support with_structured_output)
+langchain==0.1.20
+langchain-openai==0.1.6
+langchain-core==0.1.52
+
+# OpenAI API (updated to support langchain-openai 0.1.6)
+openai==1.30.0
+
+# Database (Async ORM)
+sqlalchemy[asyncio]==2.0.25
+asyncpg==0.29.0
+alembic==1.13.1
+pgvector==0.2.4
+
+# Redis (BullMQ-compatible queue consumption via BLPOP)
+# Using redis[hiredis] provides async support and performance
+
+# Data Validation
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# HTTP Server (for health checks)
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Redis Client
+redis[hiredis]==5.0.1
+
+# Utilities
+python-dotenv==1.0.0
+python-dateutil==2.8.2
+
+# Testing
+pytest==8.0.0
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+httpx==0.26.0  # For testing async HTTP calls
+
+# Development
+black==24.1.1
+ruff==0.1.14
+mypy==1.8.0

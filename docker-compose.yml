@@ -164,21 +164,22 @@ services:
     networks:
       - smartbookmarks
 
-  graph-worker:
+  ai-worker:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
-    container_name: smartbookmarks_graph_worker
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: smartbookmarks_ai_worker
     volumes:
-      - ./backend/src:/app/src
-      - ./backend/prisma:/app/prisma
-      - ./backend/scripts:/app/scripts
-      - backend_data:/app/.data
-    env_file:
-      - ./backend/.env
+      - ./ai-service:/app
     environment:
-      - DATABASE_URL=postgresql://smartbookmarks:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/smartbookmarks
+      - DATABASE_URL=postgresql+asyncpg://smartbookmarks:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/smartbookmarks
       - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AI_MODEL=gpt-4o-mini-2024-07-18
+      - EMBEDDING_MODEL=text-embedding-3-small
+      - WORKER_CONCURRENCY=5
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
     depends_on:
       postgres:
         condition: service_healthy
@@ -186,7 +187,36 @@ services:
         condition: service_healthy
       backend-api:
         condition: service_healthy
-    command: npm run worker:graph:dev
+    command: python -m worker
+    restart: unless-stopped
+    networks:
+      - smartbookmarks
+
+  graph-worker:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: smartbookmarks_graph_worker
+    volumes:
+      - ./ai-service:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://smartbookmarks:${POSTGRES_PASSWORD:-dev_password}@postgres:5432/smartbookmarks
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AI_MODEL=gpt-4o-mini-2024-07-18
+      - EMBEDDING_MODEL=text-embedding-3-small
+      - WORKER_CONCURRENCY=3
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend-api:
+        condition: service_healthy
+    command: python -m graph_worker
+    restart: unless-stopped
     networks:
       - smartbookmarks
 

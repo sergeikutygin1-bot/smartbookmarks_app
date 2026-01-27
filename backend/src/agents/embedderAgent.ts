@@ -183,6 +183,65 @@ export class EmbedderAgent {
   }
 
   /**
+   * Generate multiple embeddings for bookmark content
+   * Returns combined, summary, and optionally chunk embeddings
+   *
+   * Note: Tags are NOT included in embeddings as we now rely on
+   * concepts and entities extracted by the graph pipeline for semantic relationships
+   */
+  async embedMulti(options: {
+    title: string;
+    summary: string;
+    fullContent?: string;
+    useCache?: boolean;
+  }): Promise<{
+    combined: number[];
+    summary: number[];
+    chunks?: number[][];
+  }> {
+    const { title, summary, fullContent, useCache = true } = options;
+
+    // 1. Generate combined embedding (primary search)
+    // Weight: 30% title + 70% summary by repeating text
+    // Tags are intentionally excluded - concepts/entities provide semantic structure
+    const combinedText = [
+      title, title,  // Weight title 2x
+      summary, summary, summary, summary, summary,  // Weight summary 5x
+    ].join(' ');
+
+    const combined = await this.embed({ text: combinedText, useCache });
+
+    // 2. Generate summary embedding (fallback)
+    const summaryOnly = await this.embed({ text: summary, useCache });
+
+    // 3. Optional: Generate chunk embeddings for very long content
+    let chunks: number[][] | undefined;
+    if (fullContent && fullContent.length > 10000) {
+      const chunkTexts = this.chunkContent(fullContent, 1000);
+      chunks = await this.embedBatch({ texts: chunkTexts, useCache });
+    }
+
+    return { combined, summary: summaryOnly, chunks };
+  }
+
+  /**
+   * Chunk content into overlapping segments
+   */
+  private chunkContent(content: string, chunkSize: number = 1000): string[] {
+    const chunks: string[] = [];
+    const overlap = 200;  // 20% overlap for context
+
+    for (let i = 0; i < content.length; i += chunkSize - overlap) {
+      const chunk = content.slice(i, i + chunkSize);
+      if (chunk.trim().length > 100) {
+        chunks.push(chunk);
+      }
+    }
+
+    return chunks;
+  }
+
+  /**
    * Clear the embedding cache in Redis
    */
   async clearCache(): Promise<void> {

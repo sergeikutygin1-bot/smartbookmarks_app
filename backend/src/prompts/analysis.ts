@@ -35,11 +35,11 @@ export const analysisPrompt = PromptTemplate.fromTemplate(`You are an expert con
 - Tags: {userTags}
 
 ## OUTPUT FORMAT (required JSON)
-{{
+{{{{
   "title": "...",    // 5-150 chars, clear and descriptive
   "summary": "...",  // 300-500 words, markdown formatted
   "tags": [...]      // 3-5 lowercase-hyphenated tags
-}}
+}}}}
 
 ## TASK 1: IMPROVED TITLE
 **If user provided title:** Keep if clear; improve if vague/clickbait
@@ -102,11 +102,11 @@ Generate 3-5 focused tags:
 
 ## EXAMPLE OUTPUT (for a technical article)
 
-{{
+{{{{
   "title": "GraphQL Schema Design: Type-First Development with Apollo Server",
   "summary": "## Overview\\n\\nThis article explores **type-first development** for **GraphQL APIs** using **Apollo Server**, focusing on **schema design patterns** that improve maintainability and developer experience...\\n\\n## Key Points\\n\\n- **Schema-first approach**: Define types before resolvers to ensure **type safety** across frontend and backend\\n  - Use **SDL (Schema Definition Language)** for clear contracts\\n  - Enables **automatic documentation** and **code generation**\\n- **Modular schema composition**: Break large schemas into domain-specific modules using \`@graphql-tools/schema\`\\n- **Input validation**: Implement **custom scalars** (e.g., \`EmailAddress\`, \`DateTime\`) for built-in validation\\n\\n## Insights\\n\\n- **Key benefit**: Type-first design catches errors at build time, not runtime\\n- **Practical tip**: Use **GraphQL Code Generator** to auto-generate TypeScript types\\n- **Performance consideration**: Implement **DataLoader** pattern to prevent N+1 queries",
   "tags": ["graphql", "api-design", "apollo-server", "typescript", "backend"]
-}}
+}}}}
 
 Return ONLY valid JSON matching the required format.`);
 

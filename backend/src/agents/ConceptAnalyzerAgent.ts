@@ -1,6 +1,10 @@
 import OpenAI from 'openai';
 import prisma from '../db/prisma';
+import { Prisma } from '@prisma/client';
 import dotenv from 'dotenv';
+import { CanonicalizationService } from '../services/CanonicalizationService';
+import { v4 as uuidv4 } from 'uuid';
+import { AgentTrace } from '../services/jobStorage';
 
 dotenv.config();
 
@@ -54,11 +58,16 @@ export interface ConceptHierarchy {
  */
 export class ConceptAnalyzerAgent {
   private openai: OpenAI;
+  private agentTraces: AgentTrace[] = [];
 
   constructor() {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+  }
+
+  public getAgentTraces(): AgentTrace[] {
+    return this.agentTraces;
   }
 
   /**
@@ -95,11 +104,14 @@ export class ConceptAnalyzerAgent {
     method: 'gpt';
     cost: number;
   }> {
-    const prompt = `Analyze this content and extract key concepts and topics. Focus on:
+    const startTime = new Date();
+    const prompt = `Analyze this content and extract ALL relevant concepts and topics. Be thorough and comprehensive. Focus on:
 
-**High-Level Topics**: Broad categories (e.g., "Machine Learning", "Web Development", "Psychology")
-**Subtopics**: More specific concepts (e.g., "Neural Networks", "React Hooks", "Cognitive Load")
-**Hierarchies**: Parent-child relationships (e.g., "React Hooks" is a subtopic of "Web Development")
+**High-Level Topics**: Broad categories (e.g., "Machine Learning", "Web Development", "Political Science", "International Relations")
+**Subtopics**: More specific concepts (e.g., "Neural Networks", "React Hooks", "Opposition Movements", "Geopolitical Strategy")
+**Domain-Specific Concepts**: Field-specific ideas, theories, methodologies
+**Thematic Concepts**: Key themes, issues, problems discussed
+**Hierarchies**: Parent-child relationships (e.g., "Opposition Strategy" → "Political Activism" → "Political Science")
 
 Content:
 """
@@ -111,22 +123,26 @@ Return a JSON object with:
 - hierarchy: Array showing parent-child relationships
 
 Guidelines:
-- Extract 3-8 concepts (don't over-extract)
+- Extract AT LEAST 5-10 concepts (be comprehensive, not conservative)
 - Focus on abstract topics, not concrete entities (people/companies are handled elsewhere)
 - Use clear, concise concept names (2-4 words max)
-- Identify hierarchies where applicable (e.g., "Deep Learning" → "Machine Learning" → "Artificial Intelligence")
+- Identify hierarchies where applicable
+- Include both broad themes AND specific subtopics
 - Assign relevance scores based on how central the concept is to the content
+- Capture the full intellectual landscape of the content
 
 Example format:
 {
   "concepts": [
-    {"name": "Machine Learning", "parent": null, "relevance": 0.95},
-    {"name": "Neural Networks", "parent": "Machine Learning", "relevance": 0.85},
-    {"name": "Deep Learning", "parent": "Neural Networks", "relevance": 0.80}
+    {"name": "Political Opposition", "parent": null, "relevance": 0.95},
+    {"name": "Civil Resistance", "parent": "Political Opposition", "relevance": 0.85},
+    {"name": "Authoritarian Regimes", "parent": null, "relevance": 0.90},
+    {"name": "Democratic Transitions", "parent": "Political Opposition", "relevance": 0.75},
+    {"name": "Strategic Communication", "parent": null, "relevance": 0.80}
   ],
   "hierarchy": [
-    {"parent": "Machine Learning", "children": ["Neural Networks"]},
-    {"parent": "Neural Networks", "children": ["Deep Learning"]}
+    {"parent": "Political Opposition", "children": ["Civil Resistance", "Democratic Transitions"]},
+    {"parent": "Authoritarian Regimes", "children": []}
   ]
 }`;
 
@@ -144,7 +160,7 @@ Example format:
         },
       ],
       response_format: { type: 'json_object' },
-      temperature: 0.2, // Low temperature for consistency
+      temperature: 0.1, // Near-determinism - minimal concept variation
       max_tokens: 800,
     });
 
@@ -173,10 +189,55 @@ Example format:
     );
 
     // Calculate cost
-    const cost = this.calculateCost(
-      response.usage?.prompt_tokens || 0,
-      response.usage?.completion_tokens || 0
-    );
+    const inputTokens = response.usage?.prompt_tokens || 0;
+    const outputTokens = response.usage?.completion_tokens || 0;
+    const cost = this.calculateCost(inputTokens, outputTokens);
+
+    // Create LLM trace for observability
+    const endTime = new Date();
+    const duration = endTime.getTime() - startTime.getTime();
+
+    const inputCost = (inputTokens / 1_000_000) * 0.15;
+    const outputCost = (outputTokens / 1_000_000) * 0.6;
+
+    this.agentTraces.push({
+      agentName: 'ConceptAnalyzerAgent',
+      startTime,
+      endTime,
+      duration,
+      input: {
+        contentLength: content.length,
+        contentPreview: content.substring(0, 200) + '...',
+      },
+      output: {
+        conceptCount: concepts.length,
+        concepts: concepts.map(c => ({
+          name: c.name,
+          normalizedName: c.normalizedName,
+          parentConcept: c.parentConcept,
+          relevance: c.relevance
+        })),
+      },
+      llmTrace: {
+        model: 'gpt-4o-mini',
+        temperature: 0.1,
+        maxTokens: 800,
+        promptText: prompt.substring(0, 5000),
+        response: rawConcepts,
+        tokenUsage: {
+          promptTokens: inputTokens,
+          completionTokens: outputTokens,
+          totalTokens: inputTokens + outputTokens,
+        },
+        cost: {
+          inputCost,
+          outputCost,
+          totalCost: cost,
+        },
+        duration,
+        timestamp: endTime,
+      },
+    });
 
     return {
       concepts,
@@ -275,7 +336,8 @@ Example format:
   async saveConcepts(
     concepts: ExtractedConcept[],
     bookmarkId: string,
-    userId: string
+    userId: string,
+    embedding?: number[]
   ): Promise<void> {
     if (concepts.length === 0) {
       console.log(`[ConceptAnalyzer] No concepts to save for bookmark ${bookmarkId}`);
@@ -284,41 +346,125 @@ Example format:
 
     console.log(`[ConceptAnalyzer] Saving ${concepts.length} concepts for bookmark ${bookmarkId}`);
 
+    // DEDUPLICATION: Remove concepts that overlap with entities
+    // Entities are more specific (e.g., "React" as technology) than concepts (e.g., "React" as topic)
+    // So we prioritize entities and skip overlapping concepts to avoid redundancy
+    const entityRelationships = await prisma.relationship.findMany({
+      where: {
+        userId,
+        sourceType: 'bookmark',
+        sourceId: bookmarkId,
+        targetType: 'entity',
+      },
+    });
+
+    if (entityRelationships.length > 0) {
+      const entities = await prisma.entity.findMany({
+        where: {
+          id: { in: entityRelationships.map(rel => rel.targetId) },
+        },
+      });
+
+      // Create set of entity names (normalized lowercase) for fast lookup
+      const entityNames = new Set(
+        entities.flatMap(e => [
+          e.name.toLowerCase(),
+          e.canonicalName.toLowerCase(),
+          ...e.aliases.map(a => a.toLowerCase()),
+        ])
+      );
+
+      // Filter out concepts that match entity names
+      const beforeCount = concepts.length;
+      concepts = concepts.filter(concept => {
+        const conceptNormalized = concept.name.toLowerCase();
+        const isOverlap = entityNames.has(conceptNormalized);
+
+        if (isOverlap) {
+          console.log(
+            `[ConceptAnalyzer] ⚠️  Skipping concept "${concept.name}" - overlaps with entity`
+          );
+        }
+
+        return !isOverlap;
+      });
+
+      const removedCount = beforeCount - concepts.length;
+      if (removedCount > 0) {
+        console.log(
+          `[ConceptAnalyzer] ✓ Removed ${removedCount} overlapping concept(s), ${concepts.length} remain`
+        );
+      }
+    }
+
+    // If all concepts were filtered out, nothing left to save
+    if (concepts.length === 0) {
+      console.log(`[ConceptAnalyzer] No concepts to save after deduplication for bookmark ${bookmarkId}`);
+      return;
+    }
+
+    const canonicalService = new CanonicalizationService();
+
     // Two-pass approach:
     // Pass 1: Create all concepts (without parent references)
     // Pass 2: Update parent references
 
-    const createdConcepts = new Map<string, string>(); // normalizedName -> id
+    const createdConcepts = new Map<string, string>(); // canonicalName -> id
+    const conceptMap = new Map<string, any>(); // Store canonicalized concepts for parent mapping
 
-    // Pass 1: Create/update all concepts
+    // Pass 1: Create/update all concepts with canonicalization
     for (const concept of concepts) {
       try {
+        // Phase 2: Canonicalize concept before saving
+        const canonical = await canonicalService.resolveConcept(
+          concept.name,
+          '',  // Description will be added in Phase 3
+          embedding || null,
+          userId
+        );
+
+        // Add current mention to aliases
+        const aliases = new Set([...canonical.aliases, concept.name]);
+        if (concept.normalizedName) aliases.add(concept.normalizedName);
+
         const dbConcept = await prisma.concept.upsert({
           where: {
-            userId_normalizedName: {
+            userId_canonicalName: {
               userId,
-              normalizedName: concept.normalizedName,
+              canonicalName: canonical.canonicalName,
             },
           },
           create: {
+            id: canonical.id || uuidv4(),
             userId,
-            name: concept.name,
-            normalizedName: concept.normalizedName,
+            name: canonical.canonicalName, // Use canonical name
+            normalizedName: canonical.canonicalName.toLowerCase(),
+            canonicalName: canonical.canonicalName,
+            aliases: Array.from(aliases),
+            description: canonical.description,
+            popularity: 1,
             occurrenceCount: 1,
           },
           update: {
-            occurrenceCount: {
-              increment: 1,
-            },
-            // Update name if new version is different (keep most recent)
-            name: concept.name,
+            occurrenceCount: { increment: 1 },
+            popularity: { increment: 1 },
+            aliases: Array.from(aliases), // Merge aliases
+            description: canonical.description || undefined,
           },
         });
 
-        createdConcepts.set(concept.normalizedName, dbConcept.id);
+        console.log(
+          `[ConceptAnalyzer] ✓ Saved concept "${dbConcept.canonicalName}" (ID: ${dbConcept.id})`
+        );
+
+        createdConcepts.set(canonical.canonicalName, dbConcept.id);
+        conceptMap.set(concept.name, { canonical, dbConcept });
 
         // Create relationship: bookmark -> concept
-        await prisma.relationship.upsert({
+        console.log(
+          `[ConceptAnalyzer] Creating relationship: bookmark ${bookmarkId} -> concept ${dbConcept.id}`
+        );
+        const relationship = await prisma.relationship.upsert({
           where: {
             userId_sourceType_sourceId_targetType_targetId_relationshipType: {
               userId,
@@ -339,6 +485,7 @@ Example format:
             weight: concept.relevance,
             metadata: {
               confidence: concept.confidence,
+              canonicalMethod: canonical.method,
             },
           },
           update: {
@@ -348,6 +495,10 @@ Example format:
             },
           },
         });
+
+        console.log(
+          `[ConceptAnalyzer] ✓ Created relationship: bookmark ${bookmarkId} -> concept ${dbConcept.id} (relationship ID: ${relationship.id})`
+        );
       } catch (error) {
         console.error(
           `[ConceptAnalyzer] Failed to save concept ${concept.name}:`,
@@ -362,8 +513,21 @@ Example format:
       if (!concept.parentConcept) continue;
 
       try {
-        const childId = createdConcepts.get(concept.normalizedName);
-        const parentId = createdConcepts.get(concept.parentConcept);
+        // Get canonical child concept
+        const childData = conceptMap.get(concept.name);
+        if (!childData) continue;
+
+        const childId = childData.dbConcept.id;
+
+        // Canonicalize parent concept name to find its ID
+        const parentCanonical = await canonicalService.resolveConcept(
+          concept.parentConcept,
+          '',
+          embedding || null,
+          userId
+        );
+
+        const parentId = createdConcepts.get(parentCanonical.canonicalName);
 
         if (!childId || !parentId) {
           console.warn(
@@ -417,7 +581,45 @@ Example format:
       }
     }
 
-    console.log(`[ConceptAnalyzer] ✓ Concepts saved successfully with hierarchy`);
+    // Pass 3: Generate embeddings for new concepts
+    // Generate embeddings for concepts that don't have them yet
+    for (const concept of concepts) {
+      const canonical = conceptMap.get(concept.name)?.canonical;
+      if (!canonical) continue;
+
+      const conceptId = createdConcepts.get(canonical.canonicalName);
+      if (!conceptId) continue;
+
+      // Check if concept has embedding using raw SQL (Prisma doesn't support Unsupported fields in select)
+      // Use $queryRawUnsafe to bypass Prisma's query parsing which causes type casting issues
+      const dbConcept = await prisma.$queryRawUnsafe<Array<{ has_embedding: boolean }>>(
+        'SELECT (embedding IS NOT NULL) as has_embedding FROM concepts WHERE id = $1 LIMIT 1',
+        conceptId
+      );
+
+      if (dbConcept.length === 0 || !dbConcept[0].has_embedding) {
+        try {
+          const embedding = await this.generateConceptEmbedding(conceptId, userId);
+          if (embedding) {
+            const embeddingStr = `[${embedding.join(',')}]`;
+            await prisma.$executeRawUnsafe(
+              'UPDATE concepts SET embedding = $1::vector WHERE id = $2',
+              embeddingStr,
+              conceptId
+            );
+            console.log(`[ConceptAnalyzer] ✓ Generated embedding for concept "${canonical.canonicalName}"`);
+          }
+        } catch (error) {
+          console.error(`[ConceptAnalyzer] Failed to generate concept embedding:`, error);
+          // Continue with other concepts even if embedding fails
+        }
+      }
+    }
+
+    // Cleanup canonicalization service
+    await canonicalService.disconnect();
+
+    console.log(`[ConceptAnalyzer] ✓ Concepts saved successfully with hierarchy and embeddings`);
   }
 
   /**
@@ -513,5 +715,130 @@ Example format:
         weight: data.totalWeight / data.count, // Average weight
       };
     });
+  }
+
+  /**
+   * Generate embedding for a concept based on its definition
+   * Approach: Find top 3 bookmarks, extract summaries, embed definition
+   */
+  async generateConceptEmbedding(
+    conceptId: string,
+    userId: string
+  ): Promise<number[] | null> {
+    try {
+      // 1. Find top 3 bookmarks about this concept
+      const relationships = await prisma.relationship.findMany({
+        where: {
+          userId,
+          targetType: 'concept',
+          targetId: conceptId,
+          relationshipType: 'about',
+        },
+        orderBy: { weight: 'desc' },
+        take: 3,
+      });
+
+      if (relationships.length === 0) {
+        console.warn(`Cannot generate embedding for concept ${conceptId} - no bookmarks`);
+        return null;
+      }
+
+      // 2. Fetch bookmark summaries
+      const bookmarkIds = relationships.map(r => r.sourceId);
+      const bookmarks = await prisma.bookmark.findMany({
+        where: { id: { in: bookmarkIds } },
+        select: { title: true, summary: true },
+      });
+
+      // 3. Fetch concept details
+      const concept = await prisma.concept.findUnique({
+        where: { id: conceptId },
+      });
+
+      if (!concept) return null;
+
+      // 4. Build context-rich definition
+      const definition = bookmarks
+        .map(b => b.summary || b.title)
+        .filter(Boolean)
+        .join('\n\n');
+
+      // 5. Create embedding text
+      const embeddingText = `Concept: ${concept.canonicalName}\n\nContext: ${definition}`;
+
+      // 6. Generate embedding
+      const { getEmbedderAgent } = await import('./embedderAgent');
+      const embedder = getEmbedderAgent();
+      const embedding = await embedder.embed({ text: embeddingText, useCache: true });
+
+      console.log(`Generated embedding for concept "${concept.canonicalName}"`);
+      return embedding;
+    } catch (error) {
+      console.error(`Failed to generate concept embedding:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Batch generate embeddings for all concepts without embeddings
+   */
+  async batchGenerateConceptEmbeddings(
+    userId: string,
+    batchSize: number = 10
+  ): Promise<{ success: number; failed: number }> {
+    console.log(`Starting batch concept embedding for user ${userId}`);
+
+    // Use raw SQL to filter by vector field (Prisma can't filter Unsupported types)
+    const concepts = await prisma.$queryRaw<Array<{
+      id: string;
+      canonical_name: string;
+    }>>`
+      SELECT id, canonical_name
+      FROM concepts
+      WHERE user_id = ${userId} AND embedding IS NULL
+    `;
+
+    console.log(`Found ${concepts.length} concepts without embeddings`);
+
+    let success = 0;
+    let failed = 0;
+
+    // Process in batches
+    for (let i = 0; i < concepts.length; i += batchSize) {
+      const batch = concepts.slice(i, i + batchSize);
+
+      const results = await Promise.allSettled(
+        batch.map(async (concept) => {
+          const embedding = await this.generateConceptEmbedding(concept.id, userId);
+
+          if (embedding) {
+            const embeddingStr = `[${embedding.join(',')}]`;
+            await prisma.$executeRawUnsafe(
+              'UPDATE concepts SET embedding = $1::vector WHERE id = $2',
+              embeddingStr,
+              concept.id
+            );
+            return { success: true };
+          }
+          return { success: false };
+        })
+      );
+
+      results.forEach(r => {
+        if (r.status === 'fulfilled' && r.value.success) {
+          success++;
+        } else {
+          failed++;
+        }
+      });
+
+      // Rate limiting
+      if (i + batchSize < concepts.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    console.log(`Batch complete: ${success} success, ${failed} failed`);
+    return { success, failed };
   }
 }

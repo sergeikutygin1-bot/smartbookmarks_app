@@ -170,6 +170,11 @@ class GraphQueueManager {
   /**
    * Process a bookmark through the entire graph pipeline
    * (call this after enrichment completes)
+   *
+   * SEQUENTIAL PROCESSING to prevent entity/concept overlaps:
+   * 1. Entity extraction (must complete first)
+   * 2. Concept analysis (waits for entities, deduplicates overlaps)
+   * 3. Similarity (runs in parallel with concepts)
    */
   async processBookmarkGraph(
     bookmarkId: string,
@@ -178,14 +183,31 @@ class GraphQueueManager {
     embedding: number[],
     url: string
   ) {
-    // Add all real-time jobs in parallel
-    await Promise.all([
-      this.addEntityExtractionJob({ bookmarkId, userId, content, url }),
-      this.addConceptAnalysisJob({ bookmarkId, userId, content, embedding }),
-      this.addSimilarityJob({ bookmarkId, userId, embedding }),
-    ]);
+    // Step 1: Add entity extraction job FIRST
+    // This must complete before concept analysis to prevent overlaps
+    const entityJob = await this.addEntityExtractionJob({ bookmarkId, userId, content, url });
 
-    console.log(`[GraphQueue] All graph processing jobs queued for bookmark ${bookmarkId}`);
+    // Step 2: Add concept analysis job with dependency on entity job
+    // This ensures entities are saved before concept deduplication logic runs
+    const conceptJob = await this.conceptQueue.add('analyze-concepts', {
+      bookmarkId,
+      userId,
+      content,
+      embedding,
+    }, {
+      priority: 70,
+      jobId: `concept-${bookmarkId}`,
+      // Wait for entity extraction to complete
+      parent: {
+        id: entityJob.id!,
+        queue: this.entityQueue.qualifiedName,
+      },
+    });
+
+    // Step 3: Similarity can run independently
+    await this.addSimilarityJob({ bookmarkId, userId, embedding });
+
+    console.log(`[GraphQueue] Graph processing jobs queued for bookmark ${bookmarkId} (entity → concept sequence)`);
   }
 
   /**
