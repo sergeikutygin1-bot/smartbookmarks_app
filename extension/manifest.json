@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Smart Bookmarks",
+  "version": "1.0.0",
+  "description": "AI-powered universal content capture and organization",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:3002/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Smart Bookmarks"
+  }
+}
