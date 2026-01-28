@@ -44,13 +44,23 @@ export interface APIError {
 }
 
 /**
+ * Stored authentication with expiry
+ */
+export interface StoredAuth {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;  // timestamp
+}
+
+/**
  * Messages sent between extension components
  */
 export type ExtensionMessage =
   | { type: 'SAVE_BOOKMARK'; payload: CreateBookmarkRequest }
   | { type: 'GET_AUTH_STATE' }
-  | { type: 'LOGIN'; payload: { email: string; password: string } }
-  | { type: 'LOGOUT' };
+  | { type: 'LOGIN' }
+  | { type: 'LOGOUT' }
+  | { type: 'SMART_BOOKMARK_AUTH'; payload: { accessToken: string; refreshToken: string } };
 
 /**
  * Response from extension message handlers
