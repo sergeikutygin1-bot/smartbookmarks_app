@@ -1,74 +1,67 @@
 /**
  * API client for Smart Bookmarks backend
- * Handles authentication and bookmark operations
+ * Communicates with background service worker via chrome.runtime.sendMessage
  */
 
-import type { AuthState, CreateBookmarkRequest, Bookmark } from '../types';
-
-const API_BASE_URL = 'http://localhost:3002';
+import type {
+  AuthState,
+  Bookmark,
+  ExtensionMessage,
+  MessageResponse,
+} from '../types';
 
 /**
- * Get stored authentication tokens from chrome.storage
+ * Generic helper to send messages to background worker and return promises
+ */
+function sendMessage<T>(message: ExtensionMessage): Promise<T> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response: MessageResponse<T>) => {
+      // Check for chrome.runtime.lastError (extension errors)
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      // Check if response indicates failure
+      if (!response.success) {
+        reject(new Error(response.error || 'Unknown error'));
+        return;
+      }
+
+      // Success - resolve with data
+      resolve(response.data!);
+    });
+  });
+}
+
+/**
+ * Get authentication state from background worker
  */
 export async function getAuthState(): Promise<AuthState> {
-  // TODO: Implement chrome.storage.local.get
-  return {
-    accessToken: null,
-    refreshToken: null,
-    isAuthenticated: false
-  };
+  return sendMessage<AuthState>({ type: 'GET_AUTH_STATE' });
 }
 
 /**
- * Save authentication tokens to chrome.storage
+ * Login to Smart Bookmarks - opens auth page in new tab
  */
-export async function saveAuthState(authState: AuthState): Promise<void> {
-  // TODO: Implement chrome.storage.local.set
-  console.log('Saving auth state:', authState);
+export async function login(): Promise<void> {
+  await sendMessage<{ message: string }>({ type: 'LOGIN' });
 }
 
 /**
- * Login to Smart Bookmarks
- */
-export async function login(email: string, password: string): Promise<AuthState> {
-  // TODO: Implement API call to /api/v1/auth/login
-  throw new Error('Not implemented');
-}
-
-/**
- * Logout from Smart Bookmarks
+ * Logout from Smart Bookmarks - clears stored tokens
  */
 export async function logout(): Promise<void> {
-  // TODO: Implement token clearing
-  console.log('Logging out');
+  await sendMessage<{ isAuthenticated: boolean }>({ type: 'LOGOUT' });
 }
 
 /**
- * Create a new bookmark
+ * Create a new bookmark via background worker
  */
-export async function createBookmark(data: CreateBookmarkRequest): Promise<Bookmark> {
-  // TODO: Implement API call to /api/v1/bookmarks
-  throw new Error('Not implemented');
-}
-
-/**
- * Make authenticated API request
- */
-async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const authState = await getAuthState();
-
-  if (!authState.accessToken) {
-    throw new Error('Not authenticated');
-  }
-
-  const headers = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${authState.accessToken}`,
-    ...options.headers
-  };
-
-  return fetch(`${API_BASE_URL}${url}`, {
-    ...options,
-    headers
+export async function createBookmark(url: string, title?: string): Promise<Bookmark> {
+  const payload = title ? { url, title } : { url };
+  return sendMessage<Bookmark>({
+    type: 'SAVE_BOOKMARK',
+    payload,
   });
 }
