@@ -128,6 +128,30 @@ class EnrichmentQueueManager {
   }
 
   /**
+   * Add multiple enrichment jobs to the queue in bulk
+   *
+   * @param jobsData - Array of enrichment job data
+   * @returns Array of job objects with ids
+   */
+  async addBulk(jobsData: EnrichmentJobData[]) {
+    const jobs = jobsData.map(jobData => ({
+      name: 'enrich-url',
+      data: {
+        ...jobData,
+        createdAt: new Date(),
+        priority: 50,
+      },
+      opts: {
+        priority: 50,
+        jobId: this.generateJobId(jobData.url),
+      }
+    }));
+
+    console.log(`[EnrichmentQueue] Adding ${jobs.length} jobs in bulk`);
+    return this.queue.addBulk(jobs);
+  }
+
+  /**
    * Get a job by ID
    */
   async getJob(jobId: string) {

@@ -5,18 +5,21 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookmarkList } from "./BookmarkList";
 import { FilterBar } from "./FilterBar";
-import { Search, Plus, User } from "lucide-react";
+import { Search, Plus, User, Upload } from "lucide-react";
 import { useFilterStore } from "@/store/filterStore";
-import { useCreateBookmark } from "@/hooks/useBookmarks";
+import { useCreateBookmark, useBookmarks } from "@/hooks/useBookmarks";
 import { useBookmarksStore } from "@/store/bookmarksStore";
 import { useProfilePanelStore } from "@/store/profilePanelStore";
+import BulkImportModal from "./BulkImportModal";
 
 export function Sidebar() {
   const { searchQuery, setSearchQuery } = useFilterStore();
   const [localQuery, setLocalQuery] = useState(searchQuery);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const createMutation = useCreateBookmark();
   const { selectBookmark } = useBookmarksStore();
   const { open: openProfile } = useProfilePanelStore();
+  const { refetch } = useBookmarks();
 
   // Debounce search query updates (500ms)
   useEffect(() => {
@@ -35,6 +38,15 @@ export function Sidebar() {
       selectBookmark(bookmark.id);
     } catch (error) {
       console.error("Failed to create bookmark:", error);
+    }
+  };
+
+  // Handle bulk import completion
+  const handleImportComplete = async () => {
+    try {
+      await refetch();
+    } catch (error) {
+      console.error("Failed to refetch bookmarks after import:", error);
     }
   };
 
@@ -58,10 +70,20 @@ export function Sidebar() {
             </Button>
             <Button
               size="sm"
+              onClick={() => setShowBulkImport(true)}
+              className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
+              variant="ghost"
+              title="Bulk Import"
+            >
+              <Upload className="h-5 w-5" />
+            </Button>
+            <Button
+              size="sm"
               onClick={handleCreateBookmark}
               disabled={createMutation.isPending}
               className="h-8 w-8 p-0 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-200"
               variant="ghost"
+              title="Add Bookmark"
             >
               <Plus className="h-5 w-5" />
             </Button>
@@ -88,6 +110,13 @@ export function Sidebar() {
       <div className="flex-1 min-h-0 h-0">
         <BookmarkList />
       </div>
+
+      {/* Bulk Import Modal */}
+      <BulkImportModal
+        isOpen={showBulkImport}
+        onClose={() => setShowBulkImport(false)}
+        onImportComplete={handleImportComplete}
+      />
     </div>
   );
 }

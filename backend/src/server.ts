@@ -203,3 +203,6 @@ app.listen(PORT, () => {
 
   logger.info("server", `Server started on port ${PORT}`);
 });
+
+// Export app for testing
+export { app };

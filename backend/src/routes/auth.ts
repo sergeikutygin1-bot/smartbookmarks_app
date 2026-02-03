@@ -7,6 +7,7 @@ import { authMiddleware } from '../middleware/auth';
 import { auditService, AuditEventType } from '../services/AuditService';
 import { getCsrfToken, clearCsrfSecret } from '../middleware/csrf';
 import { sanitizeEmail, sanitizeText } from '../utils/sanitize';
+import { logger } from '../services/logger';
 
 const router = express.Router();
 
@@ -1133,5 +1134,54 @@ router.get('/github/callback',
     }
   }
 );
+
+/**
+ * @openapi
+ * /api/v1/auth/extension-token:
+ *   get:
+ *     summary: Get tokens for browser extension
+ *     description: Returns access and refresh tokens for the authenticated user to pass to browser extension
+ *     tags:
+ *       - Auth
+ *     security:
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: Tokens retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ */
+router.get('/extension-token', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.id;
+    const email = req.user!.email;
+
+    // Generate new tokens for the extension
+    const accessToken = tokenService.signAccessToken({ userId, email });
+    const refreshToken = await tokenService.generateRefreshToken(userId);
+
+    logger.info(`[Extension Token] Generated tokens for user ${userId}`);
+
+    res.json({
+      accessToken,
+      refreshToken
+    });
+  } catch (error) {
+    logger.error('[Extension Token] Error:', error);
+    res.status(500).json({
+      error: 'Failed to generate tokens',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
 
 export default router;

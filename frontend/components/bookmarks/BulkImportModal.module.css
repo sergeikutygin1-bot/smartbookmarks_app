@@ -1,0 +1,59 @@
+/* Success Message */
+.successMessage {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: hsl(var(--success-bg, 142 76% 95%));
+  color: hsl(var(--success-text, 142 76% 36%));
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--success-border, 142 76% 80%));
+  font-weight: 500;
+}
+
+/* Error Message */
+.errorMessage {
+  display: flex;
+  align-items: start;
+  gap: 0.75rem;
+  padding: 1rem;
+  background-color: hsl(var(--destructive-bg, 0 84% 95%));
+  color: hsl(var(--destructive-text, 0 84% 60%));
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--destructive-border, 0 84% 80%));
+}
+
+/* URL Counters */
+.counters {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.counter {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.counterValue {
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: hsl(var(--foreground));
+}
+
+.counterValue.counterError {
+  color: hsl(var(--destructive));
+}
+
+.counterLabel {
+  color: hsl(var(--muted-foreground));
+}
+
+.counterSeparator {
+  color: hsl(var(--muted-foreground));
+  font-weight: 300;
+}
