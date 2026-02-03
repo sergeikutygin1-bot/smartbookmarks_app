@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookmarkList } from "./BookmarkList";
@@ -20,6 +21,7 @@ export function Sidebar() {
   const { selectBookmark } = useBookmarksStore();
   const { open: openProfile } = useProfilePanelStore();
   const { refetch } = useBookmarks();
+  const queryClient = useQueryClient();
 
   // Debounce search query updates (500ms)
   useEffect(() => {
@@ -41,9 +43,23 @@ export function Sidebar() {
     }
   };
 
-  // Handle bulk import completion
-  const handleImportComplete = async () => {
+  // Handle bulk import completion with bookmark IDs
+  const handleImportComplete = async (bookmarkIds: string[]) => {
     try {
+      // Invalidate the metadata cache for imported bookmarks BEFORE refetching
+      // This ensures that when BookmarkListItem components try to fetch metadata,
+      // they will trigger fresh queries instead of hitting stale empty cache entries
+      // which may have been set before the graph workers finished processing
+      console.log(`[Sidebar] Bulk import complete: ${bookmarkIds.length} bookmarks`);
+      for (const bookmarkId of bookmarkIds) {
+        console.log(`[Sidebar] Removing metadata cache for ${bookmarkId}`);
+        queryClient.removeQueries({
+          queryKey: ['bookmark-metadata-v5', bookmarkId],
+          exact: true,
+        });
+      }
+
+      // Refetch the bookmark list to show newly imported bookmarks
       await refetch();
     } catch (error) {
       console.error("Failed to refetch bookmarks after import:", error);
