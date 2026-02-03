@@ -12,6 +12,8 @@ import { useCreateBookmark, useBookmarks } from "@/hooks/useBookmarks";
 import { useBookmarksStore } from "@/store/bookmarksStore";
 import { useProfilePanelStore } from "@/store/profilePanelStore";
 import BulkImportModal from "./BulkImportModal";
+import { useRefreshBookmarkMetadata } from "@/hooks/useBookmarkMetadata";
+import { useEnrichmentStore } from "@/store/enrichmentStore";
 
 export function Sidebar() {
   const { searchQuery, setSearchQuery } = useFilterStore();
@@ -22,6 +24,8 @@ export function Sidebar() {
   const { open: openProfile } = useProfilePanelStore();
   const { refetch } = useBookmarks();
   const queryClient = useQueryClient();
+  const refreshMetadata = useRefreshBookmarkMetadata();
+  const { setProcessing } = useEnrichmentStore();
 
   // Debounce search query updates (500ms)
   useEffect(() => {
@@ -46,23 +50,36 @@ export function Sidebar() {
   // Handle bulk import completion with bookmark IDs
   const handleImportComplete = async (bookmarkIds: string[]) => {
     try {
-      // Invalidate the metadata cache for imported bookmarks BEFORE refetching
-      // This ensures that when BookmarkListItem components try to fetch metadata,
-      // they will trigger fresh queries instead of hitting stale empty cache entries
-      // which may have been set before the graph workers finished processing
       console.log(`[Sidebar] Bulk import complete: ${bookmarkIds.length} bookmarks`);
-      for (const bookmarkId of bookmarkIds) {
-        console.log(`[Sidebar] Removing metadata cache for ${bookmarkId}`);
-        queryClient.removeQueries({
-          queryKey: ['bookmark-metadata-v5', bookmarkId],
-          exact: true,
-        });
-      }
+
+      // Mark all bookmarks as processing in enrichment store
+      // This will show enrichment banners immediately
+      bookmarkIds.forEach(id => {
+        setProcessing(id);
+      });
 
       // Refetch the bookmark list to show newly imported bookmarks
       await refetch();
+
+      // Start polling for metadata for each bookmark
+      // This replicates the same flow as single bookmark enrichment
+      // The polling will wait for graph workers to finish (30-60 seconds)
+      console.log(`[Sidebar] Starting metadata refresh for ${bookmarkIds.length} bookmarks...`);
+
+      // Process all bookmarks in parallel
+      await Promise.all(
+        bookmarkIds.map(async (bookmarkId) => {
+          try {
+            await refreshMetadata(bookmarkId);
+          } catch (error) {
+            console.error(`[Sidebar] Failed to refresh metadata for ${bookmarkId}:`, error);
+          }
+        })
+      );
+
+      console.log(`[Sidebar] Metadata refresh complete for all bookmarks`);
     } catch (error) {
-      console.error("Failed to refetch bookmarks after import:", error);
+      console.error("Failed to handle bulk import completion:", error);
     }
   };
 

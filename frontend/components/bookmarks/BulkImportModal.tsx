@@ -87,6 +87,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportComplete }: B
     setErrorMessage('');
 
     try {
+      // Step 1: Create bookmarks via bulk endpoint
       const response = await authenticatedFetch('/api/bookmarks/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -99,11 +100,9 @@ export default function BulkImportModal({ isOpen, onClose, onImportComplete }: B
       }
 
       const data = await response.json();
-      setImportedCount(data.created || validUrls.length);
-
-      // Extract bookmark IDs from response for later metadata cache invalidation
       const bookmarkIds = data.bookmarks?.map((b: any) => b.id) || [];
       setImportedBookmarkIds(bookmarkIds);
+      setImportedCount(data.created || validUrls.length);
 
       setState('success');
     } catch (error) {
