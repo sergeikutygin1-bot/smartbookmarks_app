@@ -71,6 +71,8 @@ export function Sidebar() {
         bookmarkIds.map(async (bookmarkId) => {
           try {
             await refreshMetadata(bookmarkId);
+            // Mark enrichment as complete after metadata arrives
+            useEnrichmentStore.getState().setSuccess(bookmarkId);
           } catch (error) {
             console.error(`[Sidebar] Failed to refresh metadata for ${bookmarkId}:`, error);
           }
@@ -78,6 +80,10 @@ export function Sidebar() {
       );
 
       console.log(`[Sidebar] Metadata refresh complete for all bookmarks`);
+
+      // Refetch bookmark list again to get the summaries from enrichment
+      // (summaries are populated by the enrichment worker, not graph workers)
+      await refetch();
     } catch (error) {
       console.error("Failed to handle bulk import completion:", error);
     }
