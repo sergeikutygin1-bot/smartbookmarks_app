@@ -170,29 +170,36 @@ export function useDeleteBookmark() {
       // Cancel any ongoing enrichment for this bookmark
       cancelEnrichment(id);
 
-      // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: bookmarksKeys.lists() });
+      // Cancel ALL bookmark-related queries (including search and filters)
+      await queryClient.cancelQueries({ queryKey: ['bookmarks'] });
+      await queryClient.cancelQueries({ queryKey: ['hybrid-search'] });
 
-      // Snapshot previous value
+      // Snapshot previous values from all possible query keys
       const previousBookmarks = queryClient.getQueryData<Bookmark[]>(bookmarksKeys.lists());
 
-      // Optimistically remove from list
-      queryClient.setQueryData<Bookmark[]>(
-        bookmarksKeys.lists(),
+      // Optimistically remove from ALL bookmark queries
+      // This ensures the UI updates immediately regardless of active filters/search
+      queryClient.setQueriesData<Bookmark[]>(
+        { queryKey: ['bookmarks'] },
+        (old) => old?.filter((bookmark) => bookmark.id !== id)
+      );
+
+      queryClient.setQueriesData<Bookmark[]>(
+        { queryKey: ['hybrid-search'] },
         (old) => old?.filter((bookmark) => bookmark.id !== id)
       );
 
       return { previousBookmarks };
     },
     onError: (err, id, context) => {
-      // Rollback on error
-      if (context?.previousBookmarks) {
-        queryClient.setQueryData(bookmarksKeys.lists(), context.previousBookmarks);
-      }
+      // Rollback on error - refetch to get accurate state
+      queryClient.invalidateQueries({ queryKey: ['bookmarks'] });
+      queryClient.invalidateQueries({ queryKey: ['hybrid-search'] });
     },
     onSuccess: () => {
-      // Invalidate queries
-      queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
+      // Invalidate ALL bookmark-related queries to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ['bookmarks'] });
+      queryClient.invalidateQueries({ queryKey: ['hybrid-search'] });
     },
   });
 }
