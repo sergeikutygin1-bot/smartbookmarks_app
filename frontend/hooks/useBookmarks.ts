@@ -177,16 +177,16 @@ export function useDeleteBookmark() {
       // Snapshot previous values from all possible query keys
       const previousBookmarks = queryClient.getQueryData<Bookmark[]>(bookmarksKeys.lists());
 
-      // Optimistically remove from ALL bookmark queries
-      // This ensures the UI updates immediately regardless of active filters/search
+      // Optimistically remove from ALL bookmark list queries
+      // Use setQueriesData with proper type checking to avoid filtering non-arrays
       queryClient.setQueriesData<Bookmark[]>(
-        { queryKey: ['bookmarks'] },
-        (old) => old?.filter((bookmark) => bookmark.id !== id)
+        { queryKey: ['bookmarks', 'list'] }, // Only target list queries
+        (old) => Array.isArray(old) ? old.filter((bookmark) => bookmark.id !== id) : old
       );
 
       queryClient.setQueriesData<Bookmark[]>(
         { queryKey: ['hybrid-search'] },
-        (old) => old?.filter((bookmark) => bookmark.id !== id)
+        (old) => Array.isArray(old) ? old.filter((bookmark) => bookmark.id !== id) : old
       );
 
       return { previousBookmarks };
