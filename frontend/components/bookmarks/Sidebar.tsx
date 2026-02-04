@@ -8,7 +8,7 @@ import { BookmarkList } from "./BookmarkList";
 import { FilterBar } from "./FilterBar";
 import { Search, Plus, User, Upload } from "lucide-react";
 import { useFilterStore } from "@/store/filterStore";
-import { useCreateBookmark, useBookmarks } from "@/hooks/useBookmarks";
+import { useCreateBookmark, useBookmarks, bookmarksKeys } from "@/hooks/useBookmarks";
 import { useBookmarksStore } from "@/store/bookmarksStore";
 import { useProfilePanelStore } from "@/store/profilePanelStore";
 import BulkImportModal from "./BulkImportModal";
@@ -58,7 +58,8 @@ export function Sidebar() {
         setProcessing(id);
       });
 
-      // Refetch the bookmark list to show newly imported bookmarks
+      // Invalidate cache and refetch the bookmark list to show newly imported bookmarks
+      await queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
       await refetch();
 
       // Start polling for metadata for each bookmark
@@ -81,8 +82,9 @@ export function Sidebar() {
 
       console.log(`[Sidebar] Metadata refresh complete for all bookmarks`);
 
-      // Refetch bookmark list again to get the summaries from enrichment
-      // (summaries are populated by the enrichment worker, not graph workers)
+      // Invalidate cache and refetch bookmark list to get enriched titles and summaries
+      // Force fresh fetch to bypass 5-minute staleTime cache
+      await queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
       await refetch();
     } catch (error) {
       console.error("Failed to handle bulk import completion:", error);

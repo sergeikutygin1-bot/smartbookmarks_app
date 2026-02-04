@@ -3,7 +3,7 @@ import { createRedisConnection } from '../config/redis';
 import { EnrichmentAgent } from '../agents/enrichmentAgent';
 import type { EnrichmentJobData, EnrichmentJobResult } from '../queues/enrichmentQueue';
 import { getJobStorage, JobExecution } from '../services/jobStorage';
-import { bookmarkRepository } from '../repositories/bookmarkRepository';
+import { bookmarkRepository, invalidateBookmarkCaches } from '../repositories/bookmarkRepository';
 import { trackAICost } from '../middleware/costControl';
 import { graphQueue } from '../queues/graphQueue';
 import dotenv from 'dotenv';
@@ -178,6 +178,10 @@ async function processEnrichmentJob(
           summaryEmbedding: result.summaryEmbedding,
           // fullContent: result.fullContent, // TEMPORARY: Commented out due to Prisma client sync issue
         });
+
+        // Invalidate backend bookmark cache so frontend gets fresh data
+        await invalidateBookmarkCaches(job.data.userId);
+        console.log(`[Worker] 🗑️  Invalidated bookmark cache for user ${job.data.userId}`);
 
         // Then, save tags via proper many-to-many relations (BATCHED for performance)
         if (result.tagging?.tags && result.tagging.tags.length > 0) {
