@@ -77,7 +77,17 @@ export function BookmarkListItem({ bookmark, isSelected, onClick }: BookmarkList
   };
 
   const handleConfirmDelete = () => {
-    deleteMutation.mutate(bookmark.id);
+    console.log('[BookmarkListItem] Calling deleteMutation.mutate with ID:', bookmark.id);
+    deleteMutation.mutate(bookmark.id, {
+      onSuccess: () => {
+        console.log('[BookmarkListItem] Delete successful');
+        toast.success('Bookmark deleted');
+      },
+      onError: (error) => {
+        console.error('[BookmarkListItem] Delete failed:', error);
+        toast.error('Failed to delete bookmark: ' + (error instanceof Error ? error.message : String(error)));
+      },
+    });
   };
 
   return (

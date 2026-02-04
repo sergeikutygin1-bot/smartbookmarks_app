@@ -41,6 +41,7 @@ async function pollMetadataUntilReady(
 
   let lastConceptCount = 0;
   let lastEntityCount = 0;
+  let lastMetadata: BookmarkMetadata = { concepts: [], entities: [] }; // Store last known data
   let stableCount = 0;
   const stabilityThreshold = 3; // Need 3 consecutive polls with same count
 
@@ -75,6 +76,11 @@ async function pollMetadataUntilReady(
       const conceptCount = metadata.concepts.length;
       const entityCount = metadata.entities.length;
       const hasAnyMetadata = conceptCount > 0 || entityCount > 0;
+
+      // Store the latest metadata (we'll return this if we timeout)
+      if (hasAnyMetadata) {
+        lastMetadata = metadata;
+      }
 
       // Check if counts are stable (not changing between polls)
       if (conceptCount === lastConceptCount && entityCount === lastEntityCount) {
@@ -117,14 +123,19 @@ async function pollMetadataUntilReady(
     }
   }
 
-  // After max attempts, return what we have (might be empty)
-  console.warn(
-    `⚠️ Polling timeout, returning: ${lastConceptCount} concepts, ${lastEntityCount} entities`
-  );
-  return {
-    concepts: [],
-    entities: []
-  };
+  // After max attempts, return the last known data (might be partial but better than nothing)
+  if (lastConceptCount > 0 || lastEntityCount > 0) {
+    console.warn(
+      `⚠️ Polling timeout, returning last known data: ${lastConceptCount} concepts, ${lastEntityCount} entities`
+    );
+    return lastMetadata;
+  } else {
+    console.warn(`⚠️ Polling timeout, no metadata found`);
+    return {
+      concepts: [],
+      entities: []
+    };
+  }
 }
 
 /**

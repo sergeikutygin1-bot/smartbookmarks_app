@@ -1,16 +1,19 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { BookmarkList } from "./BookmarkList";
 import { FilterBar } from "./FilterBar";
 import { Search, Plus, User, Upload } from "lucide-react";
 import { useFilterStore } from "@/store/filterStore";
-import { useCreateBookmark, useBookmarks } from "@/hooks/useBookmarks";
+import { useCreateBookmark, useBookmarks, bookmarksKeys } from "@/hooks/useBookmarks";
 import { useBookmarksStore } from "@/store/bookmarksStore";
 import { useProfilePanelStore } from "@/store/profilePanelStore";
 import BulkImportModal from "./BulkImportModal";
+import { useRefreshBookmarkMetadata } from "@/hooks/useBookmarkMetadata";
+import { useEnrichmentStore } from "@/store/enrichmentStore";
 
 export function Sidebar() {
   const { searchQuery, setSearchQuery } = useFilterStore();
@@ -20,6 +23,9 @@ export function Sidebar() {
   const { selectBookmark } = useBookmarksStore();
   const { open: openProfile } = useProfilePanelStore();
   const { refetch } = useBookmarks();
+  const queryClient = useQueryClient();
+  const refreshMetadata = useRefreshBookmarkMetadata();
+  const { setProcessing } = useEnrichmentStore();
 
   // Debounce search query updates (500ms)
   useEffect(() => {
@@ -41,12 +47,47 @@ export function Sidebar() {
     }
   };
 
-  // Handle bulk import completion
-  const handleImportComplete = async () => {
+  // Handle bulk import completion with bookmark IDs
+  const handleImportComplete = async (bookmarkIds: string[]) => {
     try {
+      console.log(`[Sidebar] Bulk import complete: ${bookmarkIds.length} bookmarks`);
+
+      // Mark all bookmarks as processing in enrichment store
+      // This will show enrichment banners immediately
+      bookmarkIds.forEach(id => {
+        setProcessing(id);
+      });
+
+      // Invalidate cache and refetch the bookmark list to show newly imported bookmarks
+      await queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
+      await refetch();
+
+      // Start polling for metadata for each bookmark
+      // This replicates the same flow as single bookmark enrichment
+      // The polling will wait for graph workers to finish (30-60 seconds)
+      console.log(`[Sidebar] Starting metadata refresh for ${bookmarkIds.length} bookmarks...`);
+
+      // Process all bookmarks in parallel
+      await Promise.all(
+        bookmarkIds.map(async (bookmarkId) => {
+          try {
+            await refreshMetadata(bookmarkId);
+            // Mark enrichment as complete after metadata arrives
+            useEnrichmentStore.getState().setSuccess(bookmarkId);
+          } catch (error) {
+            console.error(`[Sidebar] Failed to refresh metadata for ${bookmarkId}:`, error);
+          }
+        })
+      );
+
+      console.log(`[Sidebar] Metadata refresh complete for all bookmarks`);
+
+      // Invalidate cache and refetch bookmark list to get enriched titles and summaries
+      // Force fresh fetch to bypass 5-minute staleTime cache
+      await queryClient.invalidateQueries({ queryKey: bookmarksKeys.lists() });
       await refetch();
     } catch (error) {
-      console.error("Failed to refetch bookmarks after import:", error);
+      console.error("Failed to handle bulk import completion:", error);
     }
   };
 

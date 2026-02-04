@@ -17,7 +17,7 @@ import styles from './BulkImportModal.module.css';
 interface BulkImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImportComplete: () => void;
+  onImportComplete: (bookmarkIds: string[]) => void;
 }
 
 type ImportState = 'idle' | 'loading' | 'success' | 'error';
@@ -27,6 +27,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportComplete }: B
   const [state, setState] = useState<ImportState>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [importedCount, setImportedCount] = useState(0);
+  const [importedBookmarkIds, setImportedBookmarkIds] = useState<string[]>([]);
 
   // Reset state when modal closes
   useEffect(() => {
@@ -35,6 +36,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportComplete }: B
       setState('idle');
       setErrorMessage('');
       setImportedCount(0);
+      setImportedBookmarkIds([]);
     }
   }, [isOpen]);
 
@@ -43,12 +45,12 @@ export default function BulkImportModal({ isOpen, onClose, onImportComplete }: B
     if (state === 'success') {
       const timeoutId = setTimeout(() => {
         onClose();
-        onImportComplete();
+        onImportComplete(importedBookmarkIds);
       }, 3000);
 
       return () => clearTimeout(timeoutId);
     }
-  }, [state, onClose, onImportComplete]);
+  }, [state, onClose, onImportComplete, importedBookmarkIds]);
 
   // Parse and validate URLs in real-time (Issue 2 fix: use URL constructor)
   const { validUrls, invalidUrls } = useMemo(() => {
@@ -85,6 +87,7 @@ export default function BulkImportModal({ isOpen, onClose, onImportComplete }: B
     setErrorMessage('');
 
     try {
+      // Step 1: Create bookmarks via bulk endpoint
       const response = await authenticatedFetch('/api/bookmarks/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -97,7 +100,10 @@ export default function BulkImportModal({ isOpen, onClose, onImportComplete }: B
       }
 
       const data = await response.json();
+      const bookmarkIds = data.bookmarks?.map((b: any) => b.id) || [];
+      setImportedBookmarkIds(bookmarkIds);
       setImportedCount(data.created || validUrls.length);
+
       setState('success');
     } catch (error) {
       setState('error');
